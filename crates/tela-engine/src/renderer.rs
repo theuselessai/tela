@@ -215,7 +215,11 @@ fn render_table(frame: &mut Frame, area: Rect, element: &Element) {
             let cell_children = collect_element_children(row_el);
             let cells: Vec<Cell> = cell_children
                 .iter()
-                .map(|c| Cell::from(Line::from(collect_text_content(c))))
+                .map(|c| {
+                    let mut cell = Cell::from(Line::from(collect_text_content(c)));
+                    cell = cell.style(parse_style(c));
+                    cell
+                })
                 .collect();
             Row::new(cells)
         })
@@ -843,7 +847,7 @@ fn collect_text_content(element: &Element) -> Vec<Span<'static>> {
             }
         } else if child.tag == "span" {
             let text = collect_plain_text(child);
-            let style = parse_span_style(child);
+            let style = parse_style(child);
             spans.push(Span::styled(text, style));
         } else if child.is_fragment() {
             spans.extend(collect_text_content(child));
@@ -887,7 +891,7 @@ fn collect_row_children(element: &Element) -> Vec<&Element> {
 }
 
 /// Parse style props from a `<span>` element.
-fn parse_span_style(element: &Element) -> Style {
+fn parse_style(element: &Element) -> Style {
     let mut style = Style::default();
     if let Some(fg) = element.props.get("fg").and_then(|v| v.as_str()) {
         style = style.fg(parse_color(fg));
