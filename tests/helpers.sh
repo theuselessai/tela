@@ -19,8 +19,17 @@ tela_start() {
 
   tmux kill-session -t "$session" 2>/dev/null || true
   tmux new-session -d -s "$session" -x "$TEST_COLS" -y "$TEST_ROWS"
-  tmux send-keys -t "$session" "$TELA_BIN run $app_path" Enter
+  tmux send-keys -t "$session" "$TELA_BIN run $app_path 2>/tmp/tela-test-$session.log" Enter
   sleep "$STARTUP_WAIT"
+
+  local content
+  content=$(tmux capture-pane -t "$session" -p)
+  if [ -z "$(echo "$content" | tr -d '[:space:]')" ]; then
+    echo "  WARNING: screen is blank after startup"
+    if [ -f "/tmp/tela-test-$session.log" ]; then
+      echo "  stderr:" && head -5 "/tmp/tela-test-$session.log" | sed 's/^/    /'
+    fi
+  fi
 }
 
 tela_keys() {
@@ -116,9 +125,9 @@ tela_build_example() {
 
   if [ ! -f "$out" ]; then
     if command -v esbuild &>/dev/null; then
-      esbuild "$src" --bundle --jsx-factory=h --jsx-fragment=Fragment --outfile="$out"
+      esbuild "$src" --jsx-factory=h --jsx-fragment=Fragment --outfile="$out"
     elif command -v npx &>/dev/null; then
-      npx esbuild "$src" --bundle --jsx-factory=h --jsx-fragment=Fragment --outfile="$out"
+      npx esbuild "$src" --jsx-factory=h --jsx-fragment=Fragment --outfile="$out"
     else
       echo "ERROR: esbuild not found. Install with: npm install -g esbuild"
       return 1
