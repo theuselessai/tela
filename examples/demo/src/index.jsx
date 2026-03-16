@@ -24,10 +24,10 @@ var EVENTS = [
 ];
 
 var SERVERS = [
-  { name: "NorthAmerica-1", location: "New York City", status: "Up" },
-  { name: "Europe-1", location: "Paris", status: "Failure" },
-  { name: "SouthAmerica-1", location: "São Paulo", status: "Up" },
-  { name: "Asia-1", location: "Singapore", status: "Up" },
+  { name: "NorthAmerica-1", location: "New York City", status: "Up", coords: [40.71, -74.00] },
+  { name: "Europe-1", location: "Paris", status: "Failure", coords: [48.85, 2.35] },
+  { name: "SouthAmerica-1", location: "São Paulo", status: "Up", coords: [-23.54, -46.62] },
+  { name: "Asia-1", location: "Singapore", status: "Up", coords: [1.35, 103.86] },
 ];
 
 var COLORS = [
@@ -282,26 +282,28 @@ function DrawTab1({ state }) {
           })}
         </table>
       </box>
-      <box border="single" title="Network" flex={1}>
-        <layout direction="vertical">
-          <chart
-            flex={1}
-            xBounds={state.sinWindow}
-            yBounds={[-20, 20]}
-            xLabels={[
-              String(state.sinWindow[0]),
-              String((state.sinWindow[0] + state.sinWindow[1]) / 2),
-              String(state.sinWindow[1]),
-            ]}
-            yLabels={["-20", "0", "20"]}
-            xTitle="X Axis"
-            yTitle="Y Axis"
-          >
-            <dataset name="sin1" data={state.sin1} fg="cyan" marker="braille" />
-            <dataset name="sin2" data={state.sin2} fg="yellow" marker="braille" />
-          </chart>
-          <barchart height={8} data={state.barData} barWidth={3} barGap={2} fg="green" valueFg="green" labelFg="yellow" />
-        </layout>
+      <box border="single" title="World" flex={1}>
+        <canvas xBounds={[-180, 180]} yBounds={[-90, 90]} marker="braille">
+          <map resolution="high" color="white" />
+          <rect x={0} y={30} width={10} height={10} color="yellow" />
+          <circle cx={-46.62} cy={-23.54} r={10} color="green" />
+          {SERVERS.map(function(s, i) {
+            return SERVERS.slice(i + 1).map(function(s2, j) {
+              return (
+                <line
+                  key={i + "-" + j}
+                  x1={s.coords[1]} y1={s.coords[0]}
+                  x2={s2.coords[1]} y2={s2.coords[0]}
+                  color="yellow"
+                />
+              );
+            });
+          })}
+          {SERVERS.map(function(s, i) {
+            var color = s.status === "Up" ? "green" : "red";
+            return <text key={i} x={s.coords[1]} y={s.coords[0]} color={color}>X</text>;
+          })}
+        </canvas>
       </box>
     </layout>
   );

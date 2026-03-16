@@ -8,6 +8,7 @@ use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols;
 use ratatui::text::{Line, Span};
+use ratatui::widgets::canvas::{Canvas, Circle, Map, MapResolution, Rectangle};
 use ratatui::widgets::{
     Axis, Bar, BarChart, BarGroup, Block, BorderType, Borders, Cell, Chart, Dataset, Gauge,
     LineGauge, List, ListItem, ListState, Paragraph, Row, Sparkline, Table, TableState, Tabs, Wrap,
@@ -34,6 +35,7 @@ pub fn render_element(frame: &mut Frame, area: Rect, element: &Element) {
         "sparkline" => render_sparkline(frame, area, element),
         "barchart" => render_barchart(frame, area, element),
         "chart" => render_chart(frame, area, element),
+        "canvas" => render_canvas(frame, area, element),
         _ => {}
     }
 }
@@ -829,6 +831,307 @@ fn render_chart(frame: &mut Frame, area: Rect, element: &Element) {
     chart = chart.x_axis(x_axis).y_axis(y_axis);
 
     frame.render_widget(chart, area);
+}
+
+// ---------------------------------------------------------------------------
+// Canvas
+// ---------------------------------------------------------------------------
+
+fn render_canvas(frame: &mut Frame, area: Rect, element: &Element) {
+    let (x_bounds, y_bounds) =
+        if let Some(vb) = element.props.get("viewBox").and_then(|v| v.as_str()) {
+            let parts: Vec<f64> = vb
+                .split_whitespace()
+                .filter_map(|s| s.parse().ok())
+                .collect();
+            if parts.len() == 4 {
+                (
+                    [parts[0], parts[0] + parts[2]],
+                    [parts[1], parts[1] + parts[3]],
+                )
+            } else {
+                ([-180.0, 180.0], [-90.0, 90.0])
+            }
+        } else {
+            let xb = element
+                .props
+                .get("xBounds")
+                .and_then(|v| v.as_array())
+                .map(|a| {
+                    [
+                        a.first().and_then(|v| v.as_f64()).unwrap_or(-180.0),
+                        a.get(1).and_then(|v| v.as_f64()).unwrap_or(180.0),
+                    ]
+                })
+                .unwrap_or([-180.0, 180.0]);
+            let yb = element
+                .props
+                .get("yBounds")
+                .and_then(|v| v.as_array())
+                .map(|a| {
+                    [
+                        a.first().and_then(|v| v.as_f64()).unwrap_or(-90.0),
+                        a.get(1).and_then(|v| v.as_f64()).unwrap_or(90.0),
+                    ]
+                })
+                .unwrap_or([-90.0, 90.0]);
+            (xb, yb)
+        };
+
+    let marker = match element.props.get("marker").and_then(|v| v.as_str()) {
+        Some("dot") => symbols::Marker::Dot,
+        Some("block") => symbols::Marker::Block,
+        Some("bar") => symbols::Marker::Bar,
+        _ => symbols::Marker::Braille,
+    };
+
+    let shapes = collect_canvas_shapes(element);
+
+    let canvas = Canvas::default()
+        .x_bounds(x_bounds)
+        .y_bounds(y_bounds)
+        .marker(marker)
+        .paint(move |ctx| {
+            for shape in &shapes {
+                match shape {
+                    CanvasShape::MapShape { resolution, color } => {
+                        ctx.draw(&Map {
+                            color: *color,
+                            resolution: *resolution,
+                        });
+                    }
+                    CanvasShape::Rect {
+                        x,
+                        y,
+                        width,
+                        height,
+                        color,
+                    } => {
+                        ctx.draw(&Rectangle {
+                            x: *x,
+                            y: *y,
+                            width: *width,
+                            height: *height,
+                            color: *color,
+                        });
+                    }
+                    CanvasShape::CircleShape { cx, cy, r, color } => {
+                        ctx.draw(&Circle {
+                            x: *cx,
+                            y: *cy,
+                            radius: *r,
+                            color: *color,
+                        });
+                    }
+                    CanvasShape::Line {
+                        x1,
+                        y1,
+                        x2,
+                        y2,
+                        color,
+                    } => {
+                        ctx.draw(&ratatui::widgets::canvas::Line {
+                            x1: *x1,
+                            y1: *y1,
+                            x2: *x2,
+                            y2: *y2,
+                            color: *color,
+                        });
+                    }
+                    CanvasShape::Text {
+                        x,
+                        y,
+                        color,
+                        content,
+                    } => {
+                        ctx.print(
+                            *x,
+                            *y,
+                            Span::styled(content.clone(), Style::default().fg(*color)),
+                        );
+                    }
+                    CanvasShape::Lines { segments, color } => {
+                        for seg in segments {
+                            ctx.draw(&ratatui::widgets::canvas::Line {
+                                x1: seg.0,
+                                y1: seg.1,
+                                x2: seg.2,
+                                y2: seg.3,
+                                color: *color,
+                            });
+                        }
+                    }
+                }
+            }
+        });
+
+    frame.render_widget(canvas, area);
+}
+
+enum CanvasShape {
+    MapShape {
+        resolution: MapResolution,
+        color: Color,
+    },
+    Rect {
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        color: Color,
+    },
+    CircleShape {
+        cx: f64,
+        cy: f64,
+        r: f64,
+        color: Color,
+    },
+    Line {
+        x1: f64,
+        y1: f64,
+        x2: f64,
+        y2: f64,
+        color: Color,
+    },
+    Text {
+        x: f64,
+        y: f64,
+        color: Color,
+        content: String,
+    },
+    Lines {
+        segments: Vec<(f64, f64, f64, f64)>,
+        color: Color,
+    },
+}
+
+fn collect_canvas_shapes(element: &Element) -> Vec<CanvasShape> {
+    let mut shapes = Vec::new();
+    for child in &element.children {
+        if child.is_text() || child.is_fragment() {
+            continue;
+        }
+        let color = child
+            .props
+            .get("color")
+            .and_then(|v| v.as_str())
+            .map(|c| parse_color(c))
+            .unwrap_or(Color::White);
+
+        match child.tag.as_str() {
+            "map" => {
+                let res = match child.props.get("resolution").and_then(|v| v.as_str()) {
+                    Some("high") => MapResolution::High,
+                    _ => MapResolution::Low,
+                };
+                shapes.push(CanvasShape::MapShape {
+                    resolution: res,
+                    color,
+                });
+            }
+            "rect" => {
+                let x = child.props.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let y = child.props.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let w = child
+                    .props
+                    .get("width")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let h = child
+                    .props
+                    .get("height")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                shapes.push(CanvasShape::Rect {
+                    x,
+                    y,
+                    width: w,
+                    height: h,
+                    color,
+                });
+            }
+            "circle" => {
+                let cx = child
+                    .props
+                    .get("cx")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let cy = child
+                    .props
+                    .get("cy")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let r = child.props.get("r").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                shapes.push(CanvasShape::CircleShape { cx, cy, r, color });
+            }
+            "line" => {
+                let x1 = child
+                    .props
+                    .get("x1")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let y1 = child
+                    .props
+                    .get("y1")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let x2 = child
+                    .props
+                    .get("x2")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let y2 = child
+                    .props
+                    .get("y2")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                shapes.push(CanvasShape::Line {
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    color,
+                });
+            }
+            "text" => {
+                let x = child.props.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let y = child.props.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let content = collect_plain_text(child);
+                shapes.push(CanvasShape::Text {
+                    x,
+                    y,
+                    color,
+                    content,
+                });
+            }
+            "polyline" | "polygon" => {
+                let pts: Vec<(f64, f64)> = child
+                    .props
+                    .get("points")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|p| {
+                                let pair = p.as_array()?;
+                                Some((pair.first()?.as_f64()?, pair.get(1)?.as_f64()?))
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let mut segments = Vec::new();
+                for i in 0..pts.len().saturating_sub(1) {
+                    segments.push((pts[i].0, pts[i].1, pts[i + 1].0, pts[i + 1].1));
+                }
+                if child.tag == "polygon" && pts.len() >= 3 {
+                    let last = pts.len() - 1;
+                    segments.push((pts[last].0, pts[last].1, pts[0].0, pts[0].1));
+                }
+                shapes.push(CanvasShape::Lines { segments, color });
+            }
+            _ => {}
+        }
+    }
+    shapes
 }
 
 // ---------------------------------------------------------------------------
