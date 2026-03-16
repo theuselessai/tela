@@ -6,10 +6,11 @@
 
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
+use ratatui::symbols;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
-    Block, BorderType, Borders, Cell, Gauge, List, ListItem, ListState, Paragraph, Row, Table,
-    TableState, Tabs, Wrap,
+    Axis, Bar, BarChart, BarGroup, Block, BorderType, Borders, Cell, Chart, Dataset, Gauge,
+    LineGauge, List, ListItem, ListState, Paragraph, Row, Sparkline, Table, TableState, Tabs, Wrap,
 };
 use ratatui::Frame;
 
@@ -29,6 +30,10 @@ pub fn render_element(frame: &mut Frame, area: Rect, element: &Element) {
         "input" => render_input(frame, area, element),
         "textarea" => render_textarea(frame, area, element),
         "gauge" => render_gauge(frame, area, element),
+        "linegauge" => render_linegauge(frame, area, element),
+        "sparkline" => render_sparkline(frame, area, element),
+        "barchart" => render_barchart(frame, area, element),
+        "chart" => render_chart(frame, area, element),
         _ => {}
     }
 }
@@ -562,6 +567,264 @@ fn render_gauge(frame: &mut Frame, area: Rect, element: &Element) {
     gauge = gauge.gauge_style(style);
 
     frame.render_widget(gauge, area);
+}
+
+// ---------------------------------------------------------------------------
+// LineGauge
+// ---------------------------------------------------------------------------
+
+fn render_linegauge(frame: &mut Frame, area: Rect, element: &Element) {
+    let ratio = element
+        .props
+        .get("ratio")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0)
+        .clamp(0.0, 1.0);
+
+    let mut lg = LineGauge::default().ratio(ratio);
+
+    if let Some(label) = element.props.get("label").and_then(|v| v.as_str()) {
+        lg = lg.label(label.to_string());
+    }
+
+    let mut style = Style::default();
+    if let Some(fg) = element.props.get("fg").and_then(|v| v.as_str()) {
+        style = style.fg(parse_color(fg));
+    }
+    if let Some(bg) = element.props.get("bg").and_then(|v| v.as_str()) {
+        style = style.bg(parse_color(bg));
+    }
+    lg = lg.filled_style(style);
+
+    if let Some(ls) = element.props.get("lineSet").and_then(|v| v.as_str()) {
+        lg = lg.line_set(match ls {
+            "thick" => symbols::line::THICK,
+            "double" => symbols::line::DOUBLE,
+            _ => symbols::line::NORMAL,
+        });
+    }
+
+    frame.render_widget(lg, area);
+}
+
+// ---------------------------------------------------------------------------
+// Sparkline
+// ---------------------------------------------------------------------------
+
+fn render_sparkline(frame: &mut Frame, area: Rect, element: &Element) {
+    let data: Vec<u64> = element
+        .props
+        .get("data")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().map(|v| v.as_u64().unwrap_or(0)).collect())
+        .unwrap_or_default();
+
+    let mut sparkline = Sparkline::default().data(&data);
+
+    if let Some(max) = element.props.get("max").and_then(|v| v.as_u64()) {
+        sparkline = sparkline.max(max);
+    }
+
+    let mut style = Style::default();
+    if let Some(fg) = element.props.get("fg").and_then(|v| v.as_str()) {
+        style = style.fg(parse_color(fg));
+    }
+    if let Some(bg) = element.props.get("bg").and_then(|v| v.as_str()) {
+        style = style.bg(parse_color(bg));
+    }
+    sparkline = sparkline.style(style);
+
+    frame.render_widget(sparkline, area);
+}
+
+// ---------------------------------------------------------------------------
+// BarChart
+// ---------------------------------------------------------------------------
+
+fn render_barchart(frame: &mut Frame, area: Rect, element: &Element) {
+    let data_arr = element
+        .props
+        .get("data")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let bars: Vec<Bar> = data_arr
+        .iter()
+        .map(|item| {
+            if let Some(arr) = item.as_array() {
+                let label = arr.first().and_then(|v| v.as_str()).unwrap_or("");
+                let value = arr.get(1).and_then(|v| v.as_u64()).unwrap_or(0);
+                Bar::default().label(label.to_string().into()).value(value)
+            } else {
+                Bar::default().value(item.as_u64().unwrap_or(0))
+            }
+        })
+        .collect();
+
+    let mut chart = BarChart::default().data(BarGroup::default().bars(&bars));
+
+    if let Some(bw) = element.props.get("barWidth").and_then(|v| v.as_u64()) {
+        chart = chart.bar_width(bw as u16);
+    }
+    if let Some(bg) = element.props.get("barGap").and_then(|v| v.as_u64()) {
+        chart = chart.bar_gap(bg as u16);
+    }
+    if let Some(max) = element.props.get("max").and_then(|v| v.as_u64()) {
+        chart = chart.max(max);
+    }
+
+    let mut bar_style = Style::default();
+    if let Some(fg) = element.props.get("fg").and_then(|v| v.as_str()) {
+        bar_style = bar_style.fg(parse_color(fg));
+    }
+    chart = chart.bar_style(bar_style);
+
+    if let Some(fg) = element.props.get("valueFg").and_then(|v| v.as_str()) {
+        chart = chart.value_style(Style::default().fg(parse_color(fg)));
+    }
+    if let Some(fg) = element.props.get("labelFg").and_then(|v| v.as_str()) {
+        chart = chart.label_style(Style::default().fg(parse_color(fg)));
+    }
+
+    frame.render_widget(chart, area);
+}
+
+// ---------------------------------------------------------------------------
+// Chart
+// ---------------------------------------------------------------------------
+
+fn render_chart(frame: &mut Frame, area: Rect, element: &Element) {
+    let children = collect_element_children(element);
+
+    let owned_datasets: Vec<(String, Vec<(f64, f64)>, Style, symbols::Marker)> = children
+        .iter()
+        .filter(|c| c.tag == "dataset")
+        .map(|ds| {
+            let name = ds
+                .props
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let points: Vec<(f64, f64)> = ds
+                .props
+                .get("data")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|p| {
+                            let pair = p.as_array()?;
+                            Some((pair.first()?.as_f64()?, pair.get(1)?.as_f64()?))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let style = ds
+                .props
+                .get("fg")
+                .and_then(|v| v.as_str())
+                .map(|fg| Style::default().fg(parse_color(fg)))
+                .unwrap_or_default();
+            let marker = match ds.props.get("marker").and_then(|v| v.as_str()) {
+                Some("braille") => symbols::Marker::Braille,
+                Some("block") => symbols::Marker::Block,
+                Some("bar") => symbols::Marker::Bar,
+                _ => symbols::Marker::Dot,
+            };
+            (name, points, style, marker)
+        })
+        .collect();
+
+    let datasets: Vec<Dataset> = owned_datasets
+        .iter()
+        .map(|(name, points, style, marker)| {
+            Dataset::default()
+                .name(name.as_str())
+                .data(points)
+                .style(*style)
+                .marker(*marker)
+        })
+        .collect();
+
+    let mut chart = Chart::new(datasets);
+
+    let x_bounds = element
+        .props
+        .get("xBounds")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            [
+                a.first().and_then(|v| v.as_f64()).unwrap_or(0.0),
+                a.get(1).and_then(|v| v.as_f64()).unwrap_or(100.0),
+            ]
+        })
+        .unwrap_or([0.0, 100.0]);
+
+    let y_bounds = element
+        .props
+        .get("yBounds")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            [
+                a.first().and_then(|v| v.as_f64()).unwrap_or(0.0),
+                a.get(1).and_then(|v| v.as_f64()).unwrap_or(100.0),
+            ]
+        })
+        .unwrap_or([0.0, 100.0]);
+
+    let x_title = element
+        .props
+        .get("xTitle")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let y_title = element
+        .props
+        .get("yTitle")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    let x_labels: Vec<Span> = element
+        .props
+        .get("xLabels")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .map(|v| Span::raw(v.as_str().unwrap_or("").to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let y_labels: Vec<Span> = element
+        .props
+        .get("yLabels")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .map(|v| Span::raw(v.as_str().unwrap_or("").to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let mut x_axis = Axis::default().bounds(x_bounds);
+    if !x_title.is_empty() {
+        x_axis = x_axis.title(x_title.to_string());
+    }
+    if !x_labels.is_empty() {
+        x_axis = x_axis.labels(x_labels);
+    }
+
+    let mut y_axis = Axis::default().bounds(y_bounds);
+    if !y_title.is_empty() {
+        y_axis = y_axis.title(y_title.to_string());
+    }
+    if !y_labels.is_empty() {
+        y_axis = y_axis.labels(y_labels);
+    }
+
+    chart = chart.x_axis(x_axis).y_axis(y_axis);
+
+    frame.render_widget(chart, area);
 }
 
 // ---------------------------------------------------------------------------
