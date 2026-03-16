@@ -8,10 +8,12 @@ use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols;
 use ratatui::text::{Line, Span};
+use ratatui::widgets::block::Position;
 use ratatui::widgets::canvas::{Canvas, Circle, Map, MapResolution, Rectangle};
 use ratatui::widgets::{
     Axis, Bar, BarChart, BarGroup, Block, BorderType, Borders, Cell, Chart, Dataset, Gauge,
-    LineGauge, List, ListItem, ListState, Paragraph, Row, Sparkline, Table, TableState, Tabs, Wrap,
+    LineGauge, List, ListDirection, ListItem, ListState, Padding, Paragraph, RenderDirection, Row,
+    Sparkline, Table, TableState, Tabs, Wrap,
 };
 use ratatui::Frame;
 
@@ -69,6 +71,31 @@ fn render_box(frame: &mut Frame, area: Rect, element: &Element) {
         b
     };
 
+    let block = if let Some(p) = element.props.get("padding").and_then(|v| v.as_u64()) {
+        block.padding(Padding::uniform(p as u16))
+    } else {
+        block
+    };
+
+    let block = if let Some(c) = element.props.get("borderStyle").and_then(|v| v.as_str()) {
+        block.border_style(Style::default().fg(parse_color(c)))
+    } else {
+        block
+    };
+
+    let block = match element.props.get("titleAlignment").and_then(|v| v.as_str()) {
+        Some("center") => block.title_alignment(Alignment::Center),
+        Some("right") => block.title_alignment(Alignment::Right),
+        Some("left") => block.title_alignment(Alignment::Left),
+        _ => block,
+    };
+
+    let block = match element.props.get("titlePosition").and_then(|v| v.as_str()) {
+        Some("bottom") => block.title_position(Position::Bottom),
+        Some("top") => block.title_position(Position::Top),
+        _ => block,
+    };
+
     let inner = block.inner(area);
     frame.render_widget(block, area);
     render_children(frame, inner, element);
@@ -78,37 +105,7 @@ fn render_text(frame: &mut Frame, area: Rect, element: &Element) {
     let spans = collect_text_content(element);
     let line = Line::from(spans);
 
-    let mut style = Style::default();
-    if let Some(fg) = element.props.get("fg").and_then(|v| v.as_str()) {
-        style = style.fg(parse_color(fg));
-    }
-    if let Some(bg) = element.props.get("bg").and_then(|v| v.as_str()) {
-        style = style.bg(parse_color(bg));
-    }
-    if element
-        .props
-        .get("bold")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false)
-    {
-        style = style.add_modifier(Modifier::BOLD);
-    }
-    if element
-        .props
-        .get("italic")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false)
-    {
-        style = style.add_modifier(Modifier::ITALIC);
-    }
-    if element
-        .props
-        .get("underline")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false)
-    {
-        style = style.add_modifier(Modifier::UNDERLINED);
-    }
+    let style = parse_style(element);
 
     let alignment = match element.props.get("align").and_then(|v| v.as_str()) {
         Some("center") => Alignment::Center,
@@ -155,10 +152,15 @@ fn render_layout(frame: &mut Frame, area: Rect, element: &Element) {
         })
         .collect();
 
-    let chunks = Layout::default()
+    let mut layout = Layout::default()
         .direction(direction)
-        .constraints(constraints)
-        .split(area);
+        .constraints(constraints);
+
+    if let Some(s) = element.props.get("spacing").and_then(|v| v.as_u64()) {
+        layout = layout.spacing(s as u16);
+    }
+
+    let chunks = layout.split(area);
 
     for (i, child) in element.children.iter().enumerate() {
         if i < chunks.len() {
@@ -184,17 +186,18 @@ fn render_list(frame: &mut Frame, area: Rect, element: &Element) {
         .and_then(|v| v.as_str())
         .unwrap_or("▶ ");
 
-    let mut highlight_style = Style::default();
-    if let Some(fg) = element.props.get("highlight_fg").and_then(|v| v.as_str()) {
-        highlight_style = highlight_style.fg(parse_color(fg));
-    }
-    if let Some(bg) = element.props.get("highlight_bg").and_then(|v| v.as_str()) {
-        highlight_style = highlight_style.bg(parse_color(bg));
-    }
+    let highlight_style = parse_highlight_style(element);
 
-    let list = List::new(items)
+    let mut list = List::new(items)
         .highlight_style(highlight_style)
         .highlight_symbol(highlight_symbol);
+
+    match element.props.get("direction").and_then(|v| v.as_str()) {
+        Some("horizontal") => {
+            list = list.direction(ListDirection::BottomToTop);
+        }
+        _ => {}
+    }
 
     if let Some(selected) = element.props.get("selected").and_then(|v| v.as_u64()) {
         let mut state = ListState::default();
@@ -252,14 +255,19 @@ fn render_table(frame: &mut Frame, area: Rect, element: &Element) {
         );
     }
 
-    let mut highlight_style = Style::default();
-    if let Some(fg) = element.props.get("highlight_fg").and_then(|v| v.as_str()) {
-        highlight_style = highlight_style.fg(parse_color(fg));
-    }
-    if let Some(bg) = element.props.get("highlight_bg").and_then(|v| v.as_str()) {
-        highlight_style = highlight_style.bg(parse_color(bg));
-    }
+    let highlight_style = parse_highlight_style(element);
     table = table.row_highlight_style(highlight_style);
+
+    if let Some(s) = element
+        .props
+        .get("highlightSymbol")
+        .and_then(|v| v.as_str())
+    {
+        table = table.highlight_symbol(s.to_string());
+    }
+    if let Some(s) = element.props.get("columnSpacing").and_then(|v| v.as_u64()) {
+        table = table.column_spacing(s as u16);
+    }
 
     if let Some(selected) = element.props.get("selected").and_then(|v| v.as_u64()) {
         let mut state = TableState::default();
@@ -299,10 +307,12 @@ fn render_tabs(frame: &mut Frame, area: Rect, element: &Element) {
         .and_then(|v| v.as_u64())
         .unwrap_or(0) as usize;
 
-    let tabs = Tabs::new(titles)
+    let mut tabs = Tabs::new(titles)
         .select(selected)
         .highlight_style(highlight_style)
         .divider(divider);
+
+    tabs = tabs.style(parse_style(element));
 
     frame.render_widget(tabs, area);
 }
@@ -331,14 +341,7 @@ fn render_input(frame: &mut Frame, area: Rect, element: &Element) {
         .map(|v| v as usize)
         .unwrap_or(value.len());
 
-    let mut fg = Color::Reset;
-    if let Some(f) = element.props.get("fg").and_then(|v| v.as_str()) {
-        fg = parse_color(f);
-    }
-    let mut bg = Color::Reset;
-    if let Some(b) = element.props.get("bg").and_then(|v| v.as_str()) {
-        bg = parse_color(b);
-    }
+    let (fg, bg) = parse_fg_bg(element);
 
     let spans = if value.is_empty() && !placeholder.is_empty() {
         vec![
@@ -347,30 +350,7 @@ fn render_input(frame: &mut Frame, area: Rect, element: &Element) {
         ]
     } else {
         let chars: Vec<char> = value.chars().collect();
-        let cursor_pos = cursor.min(chars.len());
-        let before: String = chars[..cursor_pos].iter().collect();
-        let cursor_char = if cursor_pos < chars.len() {
-            chars[cursor_pos].to_string()
-        } else {
-            " ".to_string()
-        };
-        let after: String = if cursor_pos < chars.len() {
-            chars[cursor_pos + 1..].iter().collect()
-        } else {
-            String::new()
-        };
-
-        let normal_style = Style::default().fg(fg).bg(bg);
-        let cursor_style = Style::default().fg(bg).bg(fg);
-
-        let mut result = vec![
-            Span::styled(before, normal_style),
-            Span::styled(cursor_char, cursor_style),
-        ];
-        if !after.is_empty() {
-            result.push(Span::styled(after, normal_style));
-        }
-        result
+        render_cursor_spans(&chars, cursor, fg, bg)
     };
 
     let line = Line::from(spans);
@@ -402,14 +382,7 @@ fn render_textarea(frame: &mut Frame, area: Rect, element: &Element) {
         .map(|v| v as usize)
         .unwrap_or(value.len());
 
-    let mut fg = Color::Reset;
-    if let Some(f) = element.props.get("fg").and_then(|v| v.as_str()) {
-        fg = parse_color(f);
-    }
-    let mut bg = Color::Reset;
-    if let Some(b) = element.props.get("bg").and_then(|v| v.as_str()) {
-        bg = parse_color(b);
-    }
+    let (fg, bg) = parse_fg_bg(element);
 
     let width = area.width as usize;
     if width == 0 {
@@ -430,11 +403,10 @@ fn render_textarea(frame: &mut Frame, area: Rect, element: &Element) {
     }
 
     let normal_style = Style::default().fg(fg).bg(bg);
-    let cursor_style = Style::default().fg(bg).bg(fg);
 
     let raw_lines: Vec<&str> = value.split('\n').collect();
     let mut display_lines: Vec<Vec<char>> = Vec::new();
-    let mut line_map: Vec<(usize, usize)> = Vec::new(); // (raw_line_idx, start_offset_in_raw)
+    let mut line_map: Vec<(usize, usize)> = Vec::new();
 
     let should_wrap = element
         .props
@@ -496,7 +468,7 @@ fn render_textarea(frame: &mut Frame, area: Rect, element: &Element) {
             }
             break;
         }
-        flat_idx += line_len + 1; // +1 for \n
+        flat_idx += line_len + 1;
     }
 
     let visible_height = area.height as usize;
@@ -511,25 +483,7 @@ fn render_textarea(frame: &mut Frame, area: Rect, element: &Element) {
         let chars = &display_lines[dl_idx];
 
         if dl_idx == cursor_display_line {
-            let mut spans = Vec::new();
-            let before: String = chars[..cursor_display_col.min(chars.len())]
-                .iter()
-                .collect();
-            let cursor_char = if cursor_display_col < chars.len() {
-                chars[cursor_display_col].to_string()
-            } else {
-                " ".to_string()
-            };
-            let after: String = if cursor_display_col < chars.len() {
-                chars[cursor_display_col + 1..].iter().collect()
-            } else {
-                String::new()
-            };
-            spans.push(Span::styled(before, normal_style));
-            spans.push(Span::styled(cursor_char, cursor_style));
-            if !after.is_empty() {
-                spans.push(Span::styled(after, normal_style));
-            }
+            let spans = render_cursor_spans(chars, cursor_display_col, fg, bg);
             rendered_lines.push(Line::from(spans));
         } else {
             let text: String = chars.iter().collect();
@@ -566,14 +520,7 @@ fn render_gauge(frame: &mut Frame, area: Rect, element: &Element) {
         gauge = gauge.label(label.to_string());
     }
 
-    let mut style = Style::default();
-    if let Some(fg) = element.props.get("fg").and_then(|v| v.as_str()) {
-        style = style.fg(parse_color(fg));
-    }
-    if let Some(bg) = element.props.get("bg").and_then(|v| v.as_str()) {
-        style = style.bg(parse_color(bg));
-    }
-    gauge = gauge.gauge_style(style);
+    gauge = gauge.gauge_style(parse_style(element));
 
     frame.render_widget(gauge, area);
 }
@@ -596,14 +543,7 @@ fn render_linegauge(frame: &mut Frame, area: Rect, element: &Element) {
         lg = lg.label(label.to_string());
     }
 
-    let mut style = Style::default();
-    if let Some(fg) = element.props.get("fg").and_then(|v| v.as_str()) {
-        style = style.fg(parse_color(fg));
-    }
-    if let Some(bg) = element.props.get("bg").and_then(|v| v.as_str()) {
-        style = style.bg(parse_color(bg));
-    }
-    lg = lg.filled_style(style);
+    lg = lg.filled_style(parse_style(element));
 
     if let Some(ls) = element.props.get("lineSet").and_then(|v| v.as_str()) {
         lg = lg.line_set(match ls {
@@ -634,14 +574,24 @@ fn render_sparkline(frame: &mut Frame, area: Rect, element: &Element) {
         sparkline = sparkline.max(max);
     }
 
-    let mut style = Style::default();
-    if let Some(fg) = element.props.get("fg").and_then(|v| v.as_str()) {
-        style = style.fg(parse_color(fg));
+    sparkline = sparkline.style(parse_style(element));
+
+    match element.props.get("barSet").and_then(|v| v.as_str()) {
+        Some("three") => {
+            sparkline = sparkline.bar_set(symbols::bar::THREE_LEVELS);
+        }
+        Some("nine") => {
+            sparkline = sparkline.bar_set(symbols::bar::NINE_LEVELS);
+        }
+        _ => {}
     }
-    if let Some(bg) = element.props.get("bg").and_then(|v| v.as_str()) {
-        style = style.bg(parse_color(bg));
+
+    match element.props.get("direction").and_then(|v| v.as_str()) {
+        Some("rtl") => {
+            sparkline = sparkline.direction(RenderDirection::RightToLeft);
+        }
+        _ => {}
     }
-    sparkline = sparkline.style(style);
 
     frame.render_widget(sparkline, area);
 }
@@ -683,17 +633,34 @@ fn render_barchart(frame: &mut Frame, area: Rect, element: &Element) {
         chart = chart.max(max);
     }
 
-    let mut bar_style = Style::default();
-    if let Some(fg) = element.props.get("fg").and_then(|v| v.as_str()) {
-        bar_style = bar_style.fg(parse_color(fg));
-    }
-    chart = chart.bar_style(bar_style);
+    chart = chart.bar_style(parse_style(element));
 
     if let Some(fg) = element.props.get("valueFg").and_then(|v| v.as_str()) {
         chart = chart.value_style(Style::default().fg(parse_color(fg)));
     }
     if let Some(fg) = element.props.get("labelFg").and_then(|v| v.as_str()) {
         chart = chart.label_style(Style::default().fg(parse_color(fg)));
+    }
+
+    match element.props.get("barSet").and_then(|v| v.as_str()) {
+        Some("three") => {
+            chart = chart.bar_set(symbols::bar::THREE_LEVELS);
+        }
+        Some("nine") => {
+            chart = chart.bar_set(symbols::bar::NINE_LEVELS);
+        }
+        _ => {}
+    }
+
+    match element.props.get("direction").and_then(|v| v.as_str()) {
+        Some("horizontal") => {
+            chart = chart.direction(Direction::Horizontal);
+        }
+        _ => {}
+    }
+
+    if let Some(g) = element.props.get("groupGap").and_then(|v| v.as_u64()) {
+        chart = chart.group_gap(g as u16);
     }
 
     frame.render_widget(chart, area);
@@ -758,29 +725,8 @@ fn render_chart(frame: &mut Frame, area: Rect, element: &Element) {
 
     let mut chart = Chart::new(datasets);
 
-    let x_bounds = element
-        .props
-        .get("xBounds")
-        .and_then(|v| v.as_array())
-        .map(|a| {
-            [
-                a.first().and_then(|v| v.as_f64()).unwrap_or(0.0),
-                a.get(1).and_then(|v| v.as_f64()).unwrap_or(100.0),
-            ]
-        })
-        .unwrap_or([0.0, 100.0]);
-
-    let y_bounds = element
-        .props
-        .get("yBounds")
-        .and_then(|v| v.as_array())
-        .map(|a| {
-            [
-                a.first().and_then(|v| v.as_f64()).unwrap_or(0.0),
-                a.get(1).and_then(|v| v.as_f64()).unwrap_or(100.0),
-            ]
-        })
-        .unwrap_or([0.0, 100.0]);
+    let (x_bounds, y_bounds) =
+        parse_bounds(element, "xBounds", "yBounds", [0.0, 100.0], [0.0, 100.0]);
 
     let x_title = element
         .props
@@ -856,29 +802,13 @@ fn render_canvas(frame: &mut Frame, area: Rect, element: &Element) {
                 ([-180.0, 180.0], [-90.0, 90.0])
             }
         } else {
-            let xb = element
-                .props
-                .get("xBounds")
-                .and_then(|v| v.as_array())
-                .map(|a| {
-                    [
-                        a.first().and_then(|v| v.as_f64()).unwrap_or(-180.0),
-                        a.get(1).and_then(|v| v.as_f64()).unwrap_or(180.0),
-                    ]
-                })
-                .unwrap_or([-180.0, 180.0]);
-            let yb = element
-                .props
-                .get("yBounds")
-                .and_then(|v| v.as_array())
-                .map(|a| {
-                    [
-                        a.first().and_then(|v| v.as_f64()).unwrap_or(-90.0),
-                        a.get(1).and_then(|v| v.as_f64()).unwrap_or(90.0),
-                    ]
-                })
-                .unwrap_or([-90.0, 90.0]);
-            (xb, yb)
+            parse_bounds(
+                element,
+                "xBounds",
+                "yBounds",
+                [-180.0, 180.0],
+                [-90.0, 90.0],
+            )
         };
 
     let marker = match element.props.get("marker").and_then(|v| v.as_str()) {
@@ -890,7 +820,7 @@ fn render_canvas(frame: &mut Frame, area: Rect, element: &Element) {
 
     let shapes = collect_canvas_shapes(element);
 
-    let canvas = Canvas::default()
+    let mut canvas = Canvas::default()
         .x_bounds(x_bounds)
         .y_bounds(y_bounds)
         .marker(marker)
@@ -967,6 +897,14 @@ fn render_canvas(frame: &mut Frame, area: Rect, element: &Element) {
                 }
             }
         });
+
+    if let Some(c) = element
+        .props
+        .get("backgroundColor")
+        .and_then(|v| v.as_str())
+    {
+        canvas = canvas.background_color(parse_color(c));
+    }
 
     frame.render_widget(canvas, area);
 }
@@ -1141,9 +1079,6 @@ fn collect_canvas_shapes(element: &Element) -> Vec<CanvasShape> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Collect styled spans from an element's children.
-/// `__text__` children become unstyled spans, `<span>` children become styled
-/// spans, and fragments are recursively flattened.
 fn collect_text_content(element: &Element) -> Vec<Span<'static>> {
     let mut spans = Vec::new();
     for child in &element.children {
@@ -1162,7 +1097,6 @@ fn collect_text_content(element: &Element) -> Vec<Span<'static>> {
     spans
 }
 
-/// Collect plain text from an element's children (discarding styles).
 fn collect_plain_text(element: &Element) -> String {
     collect_text_content(element)
         .into_iter()
@@ -1170,7 +1104,6 @@ fn collect_plain_text(element: &Element) -> String {
         .collect()
 }
 
-/// Collect non-text children, flattening fragments.
 fn collect_element_children(element: &Element) -> Vec<&Element> {
     let mut result = Vec::new();
     for child in &element.children {
@@ -1183,7 +1116,6 @@ fn collect_element_children(element: &Element) -> Vec<&Element> {
     result
 }
 
-/// Collect `<row>` children for table rendering, flattening fragments.
 fn collect_row_children(element: &Element) -> Vec<&Element> {
     let mut result = Vec::new();
     for child in &element.children {
@@ -1196,7 +1128,6 @@ fn collect_row_children(element: &Element) -> Vec<&Element> {
     result
 }
 
-/// Parse style props from a `<span>` element.
 fn parse_style(element: &Element) -> Style {
     let mut style = Style::default();
     if let Some(fg) = element.props.get("fg").and_then(|v| v.as_str()) {
@@ -1229,7 +1160,120 @@ fn parse_style(element: &Element) -> Style {
     {
         style = style.add_modifier(Modifier::UNDERLINED);
     }
+    if element
+        .props
+        .get("dim")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        style = style.add_modifier(Modifier::DIM);
+    }
+    if element
+        .props
+        .get("strikethrough")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        style = style.add_modifier(Modifier::CROSSED_OUT);
+    }
+    if element
+        .props
+        .get("reversed")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        style = style.add_modifier(Modifier::REVERSED);
+    }
     style
+}
+
+fn parse_highlight_style(element: &Element) -> Style {
+    let mut style = Style::default();
+    if let Some(fg) = element.props.get("highlight_fg").and_then(|v| v.as_str()) {
+        style = style.fg(parse_color(fg));
+    }
+    if let Some(bg) = element.props.get("highlight_bg").and_then(|v| v.as_str()) {
+        style = style.bg(parse_color(bg));
+    }
+    style
+}
+
+fn parse_fg_bg(element: &Element) -> (Color, Color) {
+    let fg = element
+        .props
+        .get("fg")
+        .and_then(|v| v.as_str())
+        .map(parse_color)
+        .unwrap_or(Color::Reset);
+    let bg = element
+        .props
+        .get("bg")
+        .and_then(|v| v.as_str())
+        .map(parse_color)
+        .unwrap_or(Color::Reset);
+    (fg, bg)
+}
+
+fn parse_bounds(
+    element: &Element,
+    x_key: &str,
+    y_key: &str,
+    x_default: [f64; 2],
+    y_default: [f64; 2],
+) -> ([f64; 2], [f64; 2]) {
+    let x_bounds = element
+        .props
+        .get(x_key)
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            [
+                a.first().and_then(|v| v.as_f64()).unwrap_or(x_default[0]),
+                a.get(1).and_then(|v| v.as_f64()).unwrap_or(x_default[1]),
+            ]
+        })
+        .unwrap_or(x_default);
+    let y_bounds = element
+        .props
+        .get(y_key)
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            [
+                a.first().and_then(|v| v.as_f64()).unwrap_or(y_default[0]),
+                a.get(1).and_then(|v| v.as_f64()).unwrap_or(y_default[1]),
+            ]
+        })
+        .unwrap_or(y_default);
+    (x_bounds, y_bounds)
+}
+
+fn render_cursor_spans(
+    chars: &[char],
+    cursor_pos: usize,
+    fg: Color,
+    bg: Color,
+) -> Vec<Span<'static>> {
+    let pos = cursor_pos.min(chars.len());
+    let before: String = chars[..pos].iter().collect();
+    let cursor_char = if pos < chars.len() {
+        chars[pos].to_string()
+    } else {
+        " ".to_string()
+    };
+    let after: String = if pos < chars.len() {
+        chars[pos + 1..].iter().collect()
+    } else {
+        String::new()
+    };
+    let normal_style = Style::default().fg(fg).bg(bg);
+    let cursor_style = Style::default().fg(bg).bg(fg);
+    let mut result = vec![
+        Span::styled(before, normal_style),
+        Span::styled(cursor_char, cursor_style),
+    ];
+    if !after.is_empty() {
+        result.push(Span::styled(after, normal_style));
+    }
+    result
 }
 
 fn parse_color(name: &str) -> Color {
