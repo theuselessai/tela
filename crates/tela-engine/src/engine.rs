@@ -39,6 +39,64 @@ globalThis.Fragment = function Fragment(props) {
 
 globalThis.__tela_state__ = undefined;
 globalThis.__tela_dispatch_queue__ = [];
+globalThis.__tela_quit__ = false;
+
+globalThis.Tela = {
+    dispatch: function(action) {
+        globalThis.__tela_dispatch_queue__.push(action);
+    },
+    quit: function() {
+        globalThis.__tela_quit__ = true;
+    },
+    columns: 0,
+    rows: 0,
+};
+"#;
+
+const TELA_RUNTIME: &str = r#"
+(function() {
+    var userReduce = globalThis.reduce;
+    var bindings = globalThis.keybindings;
+
+    if (!bindings || !userReduce) return;
+
+    globalThis.reduce = function(state, action) {
+        if (action.type !== "__tela_key__") {
+            return userReduce(state, action);
+        }
+
+        var mode = (state && state.mode) || "normal";
+        var modeBindings = bindings[mode] || {};
+
+        var keyName = action.key;
+        if (action.ctrl) keyName = "Ctrl+" + keyName;
+        if (action.alt) keyName = "Alt+" + keyName;
+        if (action.shift && action.key.length > 1) keyName = "Shift+" + keyName;
+
+        var actionName = modeBindings[keyName] || modeBindings[action.key];
+
+        if (actionName) {
+            if (actionName === "quit") {
+                Tela.quit();
+                return state;
+            }
+            return userReduce(state, { type: actionName });
+        }
+
+        if (mode === "insert") {
+            if (!action.ctrl && !action.alt && action.key.length === 1) {
+                return userReduce(state, { type: "input_char", char: action.key });
+            }
+            switch (action.key) {
+                case "Backspace": return userReduce(state, { type: "input_backspace" });
+                case "Enter": return userReduce(state, { type: "input_submit" });
+                case "Escape": return userReduce(state, { type: "enter_normal" });
+            }
+        }
+
+        return state;
+    };
+})();
 "#;
 
 pub struct Engine {
@@ -126,6 +184,9 @@ impl Engine {
                     "#,
                 )
                 .map_err(|e| anyhow!("failed to capture initialState: {e}"))?;
+
+                ctx.eval::<(), _>(TELA_RUNTIME)
+                    .map_err(|e| anyhow!("failed to load tela runtime: {e}"))?;
 
                 Ok(())
             })
@@ -275,29 +336,11 @@ impl Engine {
             .await
     }
 
-    async fn get_current_mode(&self) -> String {
+    async fn check_quit(&self) -> bool {
         self.ctx
-            .with(|ctx| -> String {
-                let val: Result<rquickjs::Value, _> = ctx.eval(
-                    "globalThis.__tela_state__ && globalThis.__tela_state__.mode ? globalThis.__tela_state__.mode : 'normal'"
-                );
-                match val {
-                    Ok(v) => v.as_string()
-                        .and_then(|s| s.to_string().ok())
-                        .unwrap_or_else(|| "normal".to_string()),
-                    Err(_) => "normal".to_string(),
-                }
-            })
-            .await
-    }
-
-    pub async fn get_keybindings(&self) -> Result<serde_json::Value> {
-        self.ctx
-            .with(|ctx| -> Result<serde_json::Value> {
-                let val: rquickjs::Value = ctx
-                    .eval("typeof keybindings !== 'undefined' ? keybindings : {}")
-                    .map_err(|e| anyhow!("failed to get keybindings: {e}"))?;
-                js_value_to_json(&ctx, val)
+            .with(|ctx| -> bool {
+                ctx.eval::<bool, _>("globalThis.__tela_quit__ === true")
+                    .unwrap_or(false)
             })
             .await
     }
@@ -344,8 +387,6 @@ impl Engine {
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend).context("failed to create terminal")?;
 
-        let keybindings = self.get_keybindings().await?;
-
         let mut action_rx = self.action_rx.lock().await;
         let mut event_stream = EventStream::new();
 
@@ -355,13 +396,6 @@ impl Engine {
                 let area = frame.area();
                 crate::renderer::render_element(frame, area, &tree);
             })?;
-
-            let current_mode = self.get_current_mode().await;
-            let mode_bindings = keybindings
-                .get(&current_mode)
-                .cloned()
-                .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
-            let is_insert = current_mode == "insert";
 
             tokio::select! {
                 event = event_stream.next() => {
@@ -373,8 +407,6 @@ impl Engine {
                                 break;
                             }
 
-                            let mut handled = false;
-
                             let key_name = match key.code {
                                 KeyCode::Char(' ') => Some(" ".to_string()),
                                 KeyCode::Char(c) => Some(c.to_string()),
@@ -385,32 +417,14 @@ impl Engine {
                                 _ => None,
                             };
 
-                            if let Some(ref name) = key_name {
-                                if let Some(action_name) = mode_bindings.get(name).and_then(|v| v.as_str()) {
-                                    if action_name == "quit" {
-                                        break;
-                                    }
-                                    self.reduce(serde_json::json!({ "type": action_name })).await?;
-                                    handled = true;
-                                }
-                            }
-
-                            if !handled && is_insert {
-                                match key.code {
-                                    KeyCode::Char(c) => {
-                                        self.reduce(serde_json::json!({ "type": "input_char", "char": c.to_string() })).await?;
-                                    }
-                                    KeyCode::Backspace => {
-                                        self.reduce(serde_json::json!({ "type": "input_backspace" })).await?;
-                                    }
-                                    KeyCode::Enter => {
-                                        self.reduce(serde_json::json!({ "type": "input_submit" })).await?;
-                                    }
-                                    KeyCode::Esc => {
-                                        self.reduce(serde_json::json!({ "type": "enter_normal" })).await?;
-                                    }
-                                    _ => {}
-                                }
+                            if let Some(name) = key_name {
+                                self.reduce(serde_json::json!({
+                                    "type": "__tela_key__",
+                                    "key": name,
+                                    "ctrl": key.modifiers.contains(KeyModifiers::CONTROL),
+                                    "alt": key.modifiers.contains(KeyModifiers::ALT),
+                                    "shift": key.modifiers.contains(KeyModifiers::SHIFT),
+                                })).await?;
                             }
                         }
                         Some(Ok(Event::Resize(_, _))) => {}
@@ -430,6 +444,10 @@ impl Engine {
                 self.reduce(action).await?;
             }
             self.execute_pending_jobs().await;
+
+            if self.check_quit().await {
+                break;
+            }
         }
 
         Ok(())
