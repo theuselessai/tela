@@ -163,9 +163,15 @@ function DrawGauges({ state }) {
   return (
     <box border="single" title="Graphs" height={9}>
       <layout direction="vertical">
-        <gauge height={2} percent={Math.round(state.progress * 100)} label={"Gauge: " + pctLabel} fg="magenta" />
-        <sparkline height={3} data={state.sparkData} fg="green" />
-        <linegauge height={2} ratio={state.progress} label={"LineGauge: " + pctLabel} fg="magenta" />
+        <box border="none" title="Gauge:" height={2}>
+          <gauge ratio={state.progress} label={pctLabel} fg="magenta" bg="black" />
+        </box>
+        <box border="none" title="Sparkline:" height={3}>
+          <sparkline data={state.sparkData} fg="green" />
+        </box>
+        <box border="none" title="LineGauge:" height={2}>
+          <linegauge ratio={state.progress} fg="magenta" />
+        </box>
       </layout>
     </box>
   );
