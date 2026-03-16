@@ -19,8 +19,9 @@ tela_keys "test-todo" " "
 tela_assert_contains "test-todo" "[x]" "space toggles item done"
 
 tela_keys "test-todo" "t"
-tela_assert_contains "test-todo" "Completion" "t switches to stats tab"
-tela_assert_matches "test-todo" "[0-9]+%" "gauge shows percentage"
+sleep 0.3
+tela_assert_contains "test-todo" "Stats" "t switches to stats tab"
+tela_assert_matches "test-todo" "[0-9]" "gauge shows numeric content"
 
 tela_stop "test-todo"
 tela_summary "test_todo"

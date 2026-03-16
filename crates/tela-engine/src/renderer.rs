@@ -9,7 +9,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
     Block, BorderType, Borders, Cell, Gauge, List, ListItem, ListState, Paragraph, Row, Table,
-    TableState, Tabs,
+    TableState, Tabs, Wrap,
 };
 use ratatui::Frame;
 
@@ -93,6 +93,14 @@ fn render_text(frame: &mut Frame, area: Rect, element: &Element) {
     {
         style = style.add_modifier(Modifier::ITALIC);
     }
+    if element
+        .props
+        .get("underline")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        style = style.add_modifier(Modifier::UNDERLINED);
+    }
 
     let alignment = match element.props.get("align").and_then(|v| v.as_str()) {
         Some("center") => Alignment::Center,
@@ -100,7 +108,14 @@ fn render_text(frame: &mut Frame, area: Rect, element: &Element) {
         _ => Alignment::Left,
     };
 
-    let paragraph = Paragraph::new(line).style(style).alignment(alignment);
+    let mut paragraph = Paragraph::new(line).style(style).alignment(alignment);
+    if element.props.get("wrap").is_some() {
+        let trim = element.props.get("wrap").and_then(|v| v.as_str()) == Some("trim");
+        paragraph = paragraph.wrap(Wrap { trim });
+    }
+    if let Some(offset) = element.props.get("scroll").and_then(|v| v.as_u64()) {
+        paragraph = paragraph.scroll((offset as u16, 0));
+    }
     frame.render_widget(paragraph, area);
 }
 
@@ -114,7 +129,13 @@ fn render_layout(frame: &mut Frame, area: Rect, element: &Element) {
         .children
         .iter()
         .map(|child| {
-            if let Some(flex) = child.props.get("flex").and_then(|v| v.as_u64()) {
+            if let Some(p) = child.props.get("percent").and_then(|v| v.as_u64()) {
+                Constraint::Percentage(p as u16)
+            } else if let Some(m) = child.props.get("maxHeight").and_then(|v| v.as_u64()) {
+                Constraint::Max(m as u16)
+            } else if let Some(m) = child.props.get("maxWidth").and_then(|v| v.as_u64()) {
+                Constraint::Max(m as u16)
+            } else if let Some(flex) = child.props.get("flex").and_then(|v| v.as_u64()) {
                 Constraint::Min(flex as u16)
             } else if let Some(h) = child.props.get("height").and_then(|v| v.as_u64()) {
                 Constraint::Length(h as u16)
@@ -471,7 +492,14 @@ fn parse_span_style(element: &Element) -> Style {
 }
 
 fn parse_color(name: &str) -> Color {
-    match name.to_lowercase().as_str() {
+    let lower = name.to_lowercase();
+    if lower.starts_with('#') && lower.len() == 7 {
+        let r = u8::from_str_radix(&lower[1..3], 16).unwrap_or(0);
+        let g = u8::from_str_radix(&lower[3..5], 16).unwrap_or(0);
+        let b = u8::from_str_radix(&lower[5..7], 16).unwrap_or(0);
+        return Color::Rgb(r, g, b);
+    }
+    match lower.as_str() {
         "red" => Color::Red,
         "green" => Color::Green,
         "blue" => Color::Blue,
@@ -481,6 +509,13 @@ fn parse_color(name: &str) -> Color {
         "white" => Color::White,
         "black" => Color::Black,
         "gray" | "grey" => Color::Gray,
+        "darkgray" | "darkgrey" => Color::DarkGray,
+        "lightred" => Color::LightRed,
+        "lightgreen" => Color::LightGreen,
+        "lightblue" => Color::LightBlue,
+        "lightyellow" => Color::LightYellow,
+        "lightcyan" => Color::LightCyan,
+        "lightmagenta" => Color::LightMagenta,
         _ => Color::Reset,
     }
 }

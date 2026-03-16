@@ -345,6 +345,20 @@ impl Engine {
             .await
     }
 
+    async fn update_terminal_size(&self) {
+        if let Ok((cols, rows)) = crossterm::terminal::size() {
+            let cols = cols as u32;
+            let rows = rows as u32;
+            self.ctx
+                .with(move |ctx| {
+                    let _ = ctx.eval::<(), _>(format!(
+                        "globalThis.Tela.columns={cols};globalThis.Tela.rows={rows};"
+                    ));
+                })
+                .await;
+        }
+    }
+
     async fn handle_internal_action(&self, action: serde_json::Value) -> Result<()> {
         match action.get("type").and_then(|v| v.as_str()) {
             Some("__tela_timer__") => {
@@ -390,6 +404,8 @@ impl Engine {
         let mut action_rx = self.action_rx.lock().await;
         let mut event_stream = EventStream::new();
 
+        self.update_terminal_size().await;
+
         loop {
             let tree = self.view().await?;
             terminal.draw(|frame| {
@@ -414,6 +430,17 @@ impl Engine {
                                 KeyCode::Esc => Some("Escape".to_string()),
                                 KeyCode::Backspace => Some("Backspace".to_string()),
                                 KeyCode::Tab => Some("Tab".to_string()),
+                                KeyCode::Up => Some("Up".to_string()),
+                                KeyCode::Down => Some("Down".to_string()),
+                                KeyCode::Left => Some("Left".to_string()),
+                                KeyCode::Right => Some("Right".to_string()),
+                                KeyCode::Home => Some("Home".to_string()),
+                                KeyCode::End => Some("End".to_string()),
+                                KeyCode::PageUp => Some("PageUp".to_string()),
+                                KeyCode::PageDown => Some("PageDown".to_string()),
+                                KeyCode::Insert => Some("Insert".to_string()),
+                                KeyCode::Delete => Some("Delete".to_string()),
+                                KeyCode::F(n) => Some(format!("F{n}")),
                                 _ => None,
                             };
 
@@ -427,7 +454,14 @@ impl Engine {
                                 })).await?;
                             }
                         }
-                        Some(Ok(Event::Resize(_, _))) => {}
+                        Some(Ok(Event::Resize(w, h))) => {
+                            self.update_terminal_size().await;
+                            self.reduce(serde_json::json!({
+                                "type": "__tela_resize__",
+                                "columns": w,
+                                "rows": h,
+                            })).await?;
+                        }
                         None => break,
                         _ => {}
                     }
