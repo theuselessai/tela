@@ -462,6 +462,254 @@ Multi-line text input with cursor tracking, line wrapping, and vertical scrollin
 
 ---
 
+## `<sparkline>`
+
+**Status:** Implemented
+
+Compact bar graph for visualizing data series.
+
+```jsx
+<sparkline data={[10, 20, 50, 30, 80, 60]} fg="green" max={100} />
+```
+
+### Props
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `data` | number[] | `[]` | Data values to plot |
+| `max` | number | auto | Maximum value for scaling. If omitted, uses the max in the data. |
+| `fg` | string | terminal default | Bar color |
+| `bg` | string | terminal default | Background color |
+
+### Notes
+
+- Uses 9-level Unicode block characters for resolution.
+- Maps to ratatui `Sparkline`.
+
+---
+
+## `<barchart>`
+
+**Status:** Implemented
+
+Vertical bar chart with labels and values.
+
+```jsx
+<barchart
+  data={[["Mon", 12], ["Tue", 28], ["Wed", 15], ["Thu", 42]]}
+  barWidth={5}
+  barGap={2}
+  fg="cyan"
+  valueFg="white"
+  labelFg="gray"
+/>
+```
+
+### Props
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `data` | [string, number][] | `[]` | Array of `[label, value]` pairs |
+| `barWidth` | number | auto | Width of each bar in cells |
+| `barGap` | number | auto | Gap between bars in cells |
+| `max` | number | auto | Maximum value for scaling |
+| `fg` | string | terminal default | Bar fill color |
+| `valueFg` | string | none | Value label color |
+| `labelFg` | string | none | Bottom label color |
+
+### Notes
+
+- Maps to ratatui `BarChart`.
+
+---
+
+## `<linegauge>`
+
+**Status:** Implemented
+
+Thin horizontal line progress bar.
+
+```jsx
+<linegauge ratio={0.65} label="65%" fg="magenta" />
+```
+
+### Props
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `ratio` | number | `0.0` | Progress value, 0.0-1.0 (clamped) |
+| `label` | string | none | Text label displayed on the gauge |
+| `fg` | string | terminal default | Filled portion color |
+| `bg` | string | terminal default | Unfilled portion color |
+| `lineSet` | string | `"normal"` | Line character set: `"normal"`, `"thick"`, `"double"` |
+
+### Notes
+
+- Maps to ratatui `LineGauge`.
+
+---
+
+## `<chart>`
+
+**Status:** Implemented
+
+X-Y line chart with axes and multiple datasets. Contains `<dataset>` children.
+
+```jsx
+<chart
+  xBounds={[0, 100]}
+  yBounds={[-20, 20]}
+  xLabels={["0", "50", "100"]}
+  yLabels={["-20", "0", "20"]}
+  xTitle="Time"
+  yTitle="Value"
+>
+  <dataset name="sin" data={[[0, 0], [10, 15], [20, 5]]} fg="cyan" marker="braille" />
+  <dataset name="cos" data={[[0, 10], [10, -5], [20, 8]]} fg="yellow" marker="dot" />
+</chart>
+```
+
+### Props
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `xBounds` | [number, number] | `[0, 100]` | X-axis min and max |
+| `yBounds` | [number, number] | `[0, 100]` | Y-axis min and max |
+| `xLabels` | string[] | none | Labels along X-axis |
+| `yLabels` | string[] | none | Labels along Y-axis |
+| `xTitle` | string | none | X-axis title |
+| `yTitle` | string | none | Y-axis title |
+
+### `<dataset>` (child of `<chart>`)
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `name` | string | `""` | Legend label |
+| `data` | [number, number][] | `[]` | Array of `[x, y]` data points |
+| `fg` | string | terminal default | Line/point color |
+| `marker` | string | `"dot"` | Point style: `"dot"`, `"braille"`, `"block"`, `"bar"` |
+
+### Notes
+
+- Maps to ratatui `Chart` with `Dataset`, `Axis`.
+- `<dataset>` elements are only meaningful as children of `<chart>`.
+
+---
+
+## `<canvas>`
+
+**Status:** Planned
+
+Drawing surface with SVG-compatible shape elements. Uses a coordinate system mapped to terminal cells via braille characters.
+
+```jsx
+<canvas viewBox="-180 -90 360 180" marker="braille">
+  <map resolution="high" color="white" />
+  <rect x={0} y={30} width={10} height={10} color="yellow" />
+  <circle cx={103.86} cy={1.35} r={10} color="green" />
+  <line x1={-74} y1={40.71} x2={2.35} y2={48.85} color="yellow" />
+  <text x={-74} y={40.71} color="green">X</text>
+  <polyline points={[[0,0], [10,10], [20,0]]} color="cyan" />
+  <polygon points={[[0,0], [10,10], [20,0]]} color="magenta" />
+</canvas>
+```
+
+### Props
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `viewBox` | string | none | SVG-style viewBox: `"minX minY width height"`. Alternative to `xBounds`/`yBounds`. |
+| `xBounds` | [number, number] | `[-180, 180]` | X-axis coordinate range |
+| `yBounds` | [number, number] | `[-90, 90]` | Y-axis coordinate range |
+| `marker` | string | `"braille"` | Rendering mode: `"braille"`, `"dot"`, `"block"` |
+
+### Shape Elements (children of `<canvas>`)
+
+#### `<rect>` — Rectangle
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `x` | number | Left edge X coordinate |
+| `y` | number | Bottom edge Y coordinate |
+| `width` | number | Width in coordinate units |
+| `height` | number | Height in coordinate units |
+| `color` | string | Shape color |
+
+#### `<circle>` — Circle
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `cx` | number | Center X coordinate |
+| `cy` | number | Center Y coordinate |
+| `r` | number | Radius in coordinate units |
+| `color` | string | Shape color |
+
+#### `<line>` — Line segment
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `x1` | number | Start X |
+| `y1` | number | Start Y |
+| `x2` | number | End X |
+| `y2` | number | End Y |
+| `color` | string | Shape color |
+
+#### `<text>` — Positioned text
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `x` | number | X coordinate |
+| `y` | number | Y coordinate |
+| `color` | string | Text color |
+
+Text content is the element's children (string).
+
+#### `<polyline>` — Connected line segments
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `points` | [number, number][] | Array of `[x, y]` vertices. Segments connect consecutive points. |
+| `color` | string | Line color |
+
+#### `<polygon>` — Closed polyline
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `points` | [number, number][] | Array of `[x, y]` vertices. Last point auto-connects to first. |
+| `color` | string | Shape color |
+
+#### `<map>` — World map outline (TUI-only, not SVG)
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `resolution` | string | `"low"` | `"low"` or `"high"` |
+| `color` | string | `"white"` | Map outline color |
+
+### SVG Compatibility
+
+The API uses SVG element names and attribute conventions where possible:
+
+| SVG | Tela | Difference |
+|-----|------|------------|
+| `<svg viewBox="...">` | `<canvas viewBox="...">` | Container name differs |
+| `fill`, `stroke` | `color` | Single color per shape (terminal limitation) |
+| `stroke-width` | — | Not supported (always 1 braille dot) |
+| `opacity` | — | Not supported (no alpha in terminal) |
+| `transform` | — | Not supported (no rotate/scale/translate) |
+| `<path d="...">` | — | Not supported (no bezier curves) |
+| `<ellipse>` | — | Not supported (use `<circle>` only) |
+| `<g>` | — | Not supported (no grouping/transforms) |
+
+### Notes
+
+- Maps to ratatui `Canvas` with shape primitives.
+- The `viewBox` string is parsed into `xBounds` and `yBounds`: `"minX minY width height"` → `xBounds=[minX, minX+width]`, `yBounds=[minY, minY+height]`.
+- Shape elements (`<rect>`, `<circle>`, etc.) are only interpreted inside `<canvas>`. Outside a canvas, they are ignored.
+- `<text>` inside `<canvas>` is positioned text on the drawing surface, not the paragraph `<text>` element.
+- `<map>` is TUI-specific with no SVG equivalent.
+
+---
+
 ## Custom Components
 
 Custom components are plain JS functions. No registration, no lifecycle hooks.
