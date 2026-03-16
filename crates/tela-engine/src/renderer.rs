@@ -1130,6 +1130,60 @@ fn collect_row_children(element: &Element) -> Vec<&Element> {
 
 fn parse_style(element: &Element) -> Style {
     let mut style = Style::default();
+
+    // Read from style object first (individual props override)
+    if let Some(style_obj) = element.props.get("style").and_then(|v| v.as_object()) {
+        if let Some(fg) = style_obj.get("fg").and_then(|v| v.as_str()) {
+            style = style.fg(parse_color(fg));
+        }
+        if let Some(bg) = style_obj.get("bg").and_then(|v| v.as_str()) {
+            style = style.bg(parse_color(bg));
+        }
+        if style_obj
+            .get("bold")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            style = style.add_modifier(Modifier::BOLD);
+        }
+        if style_obj
+            .get("italic")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            style = style.add_modifier(Modifier::ITALIC);
+        }
+        if style_obj
+            .get("underline")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            style = style.add_modifier(Modifier::UNDERLINED);
+        }
+        if style_obj
+            .get("dim")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            style = style.add_modifier(Modifier::DIM);
+        }
+        if style_obj
+            .get("strikethrough")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            style = style.add_modifier(Modifier::CROSSED_OUT);
+        }
+        if style_obj
+            .get("reversed")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            style = style.add_modifier(Modifier::REVERSED);
+        }
+    }
+
+    // Individual props override style object
     if let Some(fg) = element.props.get("fg").and_then(|v| v.as_str()) {
         style = style.fg(parse_color(fg));
     }
@@ -1283,6 +1337,11 @@ fn parse_color(name: &str) -> Color {
         let g = u8::from_str_radix(&lower[3..5], 16).unwrap_or(0);
         let b = u8::from_str_radix(&lower[5..7], 16).unwrap_or(0);
         return Color::Rgb(r, g, b);
+    }
+    if lower.starts_with("color(") && lower.ends_with(')') {
+        if let Ok(n) = lower[6..lower.len() - 1].parse::<u8>() {
+            return Color::Indexed(n);
+        }
     }
     match lower.as_str() {
         "red" => Color::Red,

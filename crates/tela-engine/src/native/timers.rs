@@ -37,6 +37,7 @@ globalThis.setInterval = function(callback, ms) {
 };
 
 globalThis.clearTimeout = function(id) {
+    if (id === undefined || id === null) return;
     delete globalThis.__tela_timers__[id];
     __tela_cancel_timer__(id);
 };

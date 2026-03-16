@@ -75,6 +75,38 @@ const TELA_RUNTIME: &str = r#"
 
         var actionName = modeBindings[keyName] || modeBindings[action.key];
 
+        // Check for multi-key sequence match
+        if (!actionName) {
+            globalThis.__tela_key_buffer__ = globalThis.__tela_key_buffer__ || [];
+            globalThis.__tela_key_buffer__.push(action.key);
+            var seq = globalThis.__tela_key_buffer__.join(" ");
+
+            // Check exact match
+            if (modeBindings[seq]) {
+                clearTimeout(globalThis.__tela_key_timer__);
+                globalThis.__tela_key_buffer__ = [];
+                actionName = modeBindings[seq];
+            } else {
+                // Check if any binding starts with this prefix
+                var hasPrefix = Object.keys(modeBindings).some(function(k) {
+                    return k.indexOf(seq + " ") === 0;
+                });
+                if (hasPrefix) {
+                    clearTimeout(globalThis.__tela_key_timer__);
+                    globalThis.__tela_key_timer__ = setTimeout(function() {
+                        globalThis.__tela_key_buffer__ = [];
+                    }, 500);
+                    return state;
+                }
+                // No match and no prefix — reset and fall through
+                globalThis.__tela_key_buffer__ = [];
+            }
+        } else {
+            // Single key matched — clear any pending sequence
+            globalThis.__tela_key_buffer__ = [];
+            clearTimeout(globalThis.__tela_key_timer__);
+        }
+
         if (actionName) {
             if (actionName === "quit") {
                 Tela.quit();
@@ -456,6 +488,28 @@ impl Engine {
                                     "shift": key.modifiers.contains(KeyModifiers::SHIFT),
                                 })).await?;
                             }
+                        }
+                        Some(Ok(Event::Mouse(mouse))) => {
+                            let (event_name, button) = match mouse.kind {
+                                crossterm::event::MouseEventKind::Down(btn) => {
+                                    let b = match btn {
+                                        crossterm::event::MouseButton::Left => "left",
+                                        crossterm::event::MouseButton::Right => "right",
+                                        crossterm::event::MouseButton::Middle => "middle",
+                                    };
+                                    ("click", b)
+                                }
+                                crossterm::event::MouseEventKind::ScrollUp => ("scroll", "up"),
+                                crossterm::event::MouseEventKind::ScrollDown => ("scroll", "down"),
+                                _ => continue,
+                            };
+                            self.reduce(serde_json::json!({
+                                "type": "__tela_mouse__",
+                                "event": event_name,
+                                "column": mouse.column,
+                                "row": mouse.row,
+                                "button": button,
+                            })).await?;
                         }
                         Some(Ok(Event::Resize(w, h))) => {
                             self.update_terminal_size().await;
