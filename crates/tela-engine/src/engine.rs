@@ -13,8 +13,8 @@ use tokio::sync::mpsc;
 
 use crate::elements::Element;
 use crate::native::{
-    register_clipboard, register_console, register_env, register_fetch, register_storage,
-    register_timers, register_websocket, TimerHandles, WsSenders,
+    register_clipboard, register_console, register_env, register_fetch, register_filesystem,
+    register_storage, register_timers, register_websocket, TimerHandles, WsSenders,
 };
 
 const H_AND_FRAGMENT: &str = r#"
@@ -187,6 +187,7 @@ impl Engine {
                 if perms.iter().any(|p| p == "clipboard") {
                     register_clipboard(&ctx)?;
                 }
+                register_filesystem(&ctx, &perms)?;
                 Ok(())
             })
             .await?;
