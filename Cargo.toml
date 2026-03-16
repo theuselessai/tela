@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/tela-engine", "crates/tela-cli"]
+resolver = "2"
