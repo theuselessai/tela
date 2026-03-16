@@ -50,7 +50,7 @@ tela_keys "test-all" "Enter"
 tela_assert_contains "test-all" "New" "submitted item appears in list"
 tela_assert_contains "test-all" "normal" "submit returns to normal mode"
 
-tela_assert_matches "test-all" "[0-9]" "gauge renders with numeric content"
+tela_assert_contains "test-all" "done" "gauge renders with label"
 
 tela_stop "test-all"
 tela_summary "test_test_all"
