@@ -120,17 +120,9 @@ tela_summary() {
 
 tela_build_example() {
   local app_path="$1"
-  local src="$app_path/src/index.jsx"
   local out="$app_path/bundle.js"
 
   if [ ! -f "$out" ]; then
-    if command -v esbuild &>/dev/null; then
-      esbuild "$src" --jsx-factory=h --jsx-fragment=Fragment --outfile="$out"
-    elif command -v npx &>/dev/null; then
-      npx esbuild "$src" --jsx-factory=h --jsx-fragment=Fragment --outfile="$out"
-    else
-      echo "ERROR: esbuild not found. Install with: npm install -g esbuild"
-      return 1
-    fi
+    (cd "$app_path" && npm install --silent 2>/dev/null && npm run build)
   fi
 }
