@@ -6,6 +6,7 @@ TELA_BIN="${TELA_BIN:-$SCRIPT_DIR/target/debug/tela-cli}"
 TEST_COLS="${TEST_COLS:-80}"
 TEST_ROWS="${TEST_ROWS:-24}"
 STARTUP_WAIT="${STARTUP_WAIT:-2}"
+TMUX_SERVER="tela-test-$$"
 PASSED=0
 FAILED=0
 ERRORS=""
@@ -17,13 +18,13 @@ tela_start() {
   local session="$1"
   local app_path="$2"
 
-  tmux kill-session -t "$session" 2>/dev/null || true
-  tmux new-session -d -s "$session" -x "$TEST_COLS" -y "$TEST_ROWS"
-  tmux send-keys -t "$session" "$TELA_BIN run $app_path 2>/tmp/tela-test-$session.log" Enter
+  tmux -L "$TMUX_SERVER" kill-session -t "$session" 2>/dev/null || true
+  tmux -L "$TMUX_SERVER" new-session -d -s "$session" -x "$TEST_COLS" -y "$TEST_ROWS"
+  tmux -L "$TMUX_SERVER" send-keys -t "$session" "$TELA_BIN run $app_path 2>/tmp/tela-test-$session.log" Enter
   sleep "$STARTUP_WAIT"
 
   local content
-  content=$(tmux capture-pane -t "$session" -p)
+  content=$(tmux -L "$TMUX_SERVER" capture-pane -t "$session" -p)
   if [ -z "$(echo "$content" | tr -d '[:space:]')" ]; then
     echo "  WARNING: screen is blank after startup"
     if [ -f "/tmp/tela-test-$session.log" ]; then
@@ -35,13 +36,13 @@ tela_start() {
 tela_keys() {
   local session="$1"
   shift
-  tmux send-keys -t "$session" "$@"
+  tmux -L "$TMUX_SERVER" send-keys -t "$session" "$@"
   sleep 0.3
 }
 
 tela_capture() {
   local session="$1"
-  tmux capture-pane -t "$session" -p
+  tmux -L "$TMUX_SERVER" capture-pane -t "$session" -p
 }
 
 tela_assert_contains() {
@@ -102,13 +103,14 @@ tela_assert_matches() {
 
 tela_stop() {
   local session="$1"
-  tmux send-keys -t "$session" C-c 2>/dev/null || true
+  tmux -L "$TMUX_SERVER" send-keys -t "$session" C-c 2>/dev/null || true
   sleep 0.3
-  tmux kill-session -t "$session" 2>/dev/null || true
+  tmux -L "$TMUX_SERVER" kill-session -t "$session" 2>/dev/null || true
 }
 
 tela_summary() {
   local name="${1:-tests}"
+  tmux -L "$TMUX_SERVER" kill-server 2>/dev/null || true
   echo ""
   echo "[$name] $PASSED passed, $FAILED failed"
   if [ "$FAILED" -gt 0 ]; then

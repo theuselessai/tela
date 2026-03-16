@@ -130,18 +130,18 @@ fn render_layout(frame: &mut Frame, area: Rect, element: &Element) {
         .children
         .iter()
         .map(|child| {
-            if let Some(p) = child.props.get("percent").and_then(|v| v.as_u64()) {
-                Constraint::Percentage(p as u16)
+            if let Some(h) = child.props.get("height").and_then(|v| v.as_u64()) {
+                Constraint::Length(h as u16)
+            } else if let Some(w) = child.props.get("width").and_then(|v| v.as_u64()) {
+                Constraint::Length(w as u16)
+            } else if let Some(flex) = child.props.get("flex").and_then(|v| v.as_u64()) {
+                Constraint::Min(flex as u16)
             } else if let Some(m) = child.props.get("maxHeight").and_then(|v| v.as_u64()) {
                 Constraint::Max(m as u16)
             } else if let Some(m) = child.props.get("maxWidth").and_then(|v| v.as_u64()) {
                 Constraint::Max(m as u16)
-            } else if let Some(flex) = child.props.get("flex").and_then(|v| v.as_u64()) {
-                Constraint::Min(flex as u16)
-            } else if let Some(h) = child.props.get("height").and_then(|v| v.as_u64()) {
-                Constraint::Length(h as u16)
-            } else if let Some(w) = child.props.get("width").and_then(|v| v.as_u64()) {
-                Constraint::Length(w as u16)
+            } else if let Some(p) = child.props.get("layoutPercent").and_then(|v| v.as_u64()) {
+                Constraint::Percentage(p as u16)
             } else {
                 Constraint::Min(0)
             }
