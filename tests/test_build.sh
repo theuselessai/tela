@@ -7,19 +7,18 @@ echo "=== test_build ==="
 
 if [ -f "$TELA_BIN" ]; then
   echo "  PASS: tela binary exists at $TELA_BIN"
-  ((PASSED++))
+  pass
 else
   echo "  FAIL: tela binary not found at $TELA_BIN"
-  ((FAILED++))
+  fail
 fi
 
-"$TELA_BIN" --help >/dev/null 2>&1
-if [ $? -eq 0 ]; then
+if "$TELA_BIN" --help >/dev/null 2>&1; then
   echo "  PASS: tela --help exits cleanly"
-  ((PASSED++))
+  pass
 else
   echo "  FAIL: tela --help failed"
-  ((FAILED++))
+  fail
 fi
 
 tela_summary "test_build"
