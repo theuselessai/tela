@@ -84,6 +84,9 @@ const TELA_RUNTIME: &str = r#"
         }
 
         if (mode === "insert") {
+            if (action.ctrl && action.key === "j") {
+                return userReduce(state, { type: "input_newline" });
+            }
             if (!action.ctrl && !action.alt && action.key.length === 1) {
                 return userReduce(state, { type: "input_char", char: action.key });
             }

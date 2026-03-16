@@ -27,6 +27,7 @@ pub fn render_element(frame: &mut Frame, area: Rect, element: &Element) {
         "table" => render_table(frame, area, element),
         "tabs" => render_tabs(frame, area, element),
         "input" => render_input(frame, area, element),
+        "textarea" => render_textarea(frame, area, element),
         "gauge" => render_gauge(frame, area, element),
         _ => {}
     }
@@ -363,6 +364,173 @@ fn render_input(frame: &mut Frame, area: Rect, element: &Element) {
 
     let line = Line::from(spans);
     let paragraph = Paragraph::new(line);
+    frame.render_widget(paragraph, area);
+}
+
+// ---------------------------------------------------------------------------
+// Textarea
+// ---------------------------------------------------------------------------
+
+fn render_textarea(frame: &mut Frame, area: Rect, element: &Element) {
+    let value = element
+        .props
+        .get("value")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    let placeholder = element
+        .props
+        .get("placeholder")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    let cursor = element
+        .props
+        .get("cursor")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize)
+        .unwrap_or(value.len());
+
+    let mut fg = Color::Reset;
+    if let Some(f) = element.props.get("fg").and_then(|v| v.as_str()) {
+        fg = parse_color(f);
+    }
+    let mut bg = Color::Reset;
+    if let Some(b) = element.props.get("bg").and_then(|v| v.as_str()) {
+        bg = parse_color(b);
+    }
+
+    let width = area.width as usize;
+    if width == 0 {
+        return;
+    }
+
+    if value.is_empty() && !placeholder.is_empty() {
+        let mut lines: Vec<Line> = vec![Line::from(vec![
+            Span::styled(placeholder.to_string(), Style::default().fg(Color::Gray)),
+            Span::styled(" ".to_string(), Style::default().fg(bg).bg(fg)),
+        ])];
+        for _ in 1..area.height {
+            lines.push(Line::from(""));
+        }
+        let paragraph = Paragraph::new(lines);
+        frame.render_widget(paragraph, area);
+        return;
+    }
+
+    let normal_style = Style::default().fg(fg).bg(bg);
+    let cursor_style = Style::default().fg(bg).bg(fg);
+
+    let raw_lines: Vec<&str> = value.split('\n').collect();
+    let mut display_lines: Vec<Vec<char>> = Vec::new();
+    let mut line_map: Vec<(usize, usize)> = Vec::new(); // (raw_line_idx, start_offset_in_raw)
+
+    let should_wrap = element
+        .props
+        .get("wrap")
+        .map(|v| v.as_bool().unwrap_or(true))
+        .unwrap_or(true);
+
+    for (raw_idx, raw_line) in raw_lines.iter().enumerate() {
+        let chars: Vec<char> = raw_line.chars().collect();
+        if chars.is_empty() {
+            display_lines.push(Vec::new());
+            line_map.push((raw_idx, 0));
+        } else if !should_wrap || chars.len() <= width {
+            display_lines.push(chars);
+            line_map.push((raw_idx, 0));
+        } else {
+            let mut offset = 0;
+            while offset < chars.len() {
+                let end = (offset + width).min(chars.len());
+                display_lines.push(chars[offset..end].to_vec());
+                line_map.push((raw_idx, offset));
+                offset = end;
+            }
+        }
+    }
+
+    let cursor_pos = cursor.min(value.len());
+    let mut flat_idx = 0;
+    let mut cursor_display_line = 0;
+    let mut cursor_display_col = 0;
+
+    for (raw_idx, raw_line) in raw_lines.iter().enumerate() {
+        let line_len = raw_line.len();
+        if flat_idx + line_len >= cursor_pos || raw_idx == raw_lines.len() - 1 {
+            let offset_in_line = cursor_pos - flat_idx;
+            let char_offset = raw_line
+                .char_indices()
+                .enumerate()
+                .find(|(i, _)| *i >= offset_in_line)
+                .map(|(i, _)| i)
+                .unwrap_or(raw_line.chars().count());
+
+            for (dl_idx, (map_raw, map_start)) in line_map.iter().enumerate() {
+                if *map_raw == raw_idx {
+                    let dl_len = display_lines[dl_idx].len();
+                    if char_offset >= *map_start && char_offset <= *map_start + dl_len {
+                        cursor_display_line = dl_idx;
+                        cursor_display_col = char_offset - map_start;
+                        break;
+                    }
+                    if char_offset < *map_start {
+                        cursor_display_line = dl_idx;
+                        cursor_display_col = 0;
+                        break;
+                    }
+                    cursor_display_line = dl_idx;
+                    cursor_display_col = dl_len;
+                }
+            }
+            break;
+        }
+        flat_idx += line_len + 1; // +1 for \n
+    }
+
+    let visible_height = area.height as usize;
+    let scroll_offset = if cursor_display_line >= visible_height {
+        cursor_display_line - visible_height + 1
+    } else {
+        0
+    };
+
+    let mut rendered_lines: Vec<Line> = Vec::new();
+    for dl_idx in scroll_offset..(scroll_offset + visible_height).min(display_lines.len()) {
+        let chars = &display_lines[dl_idx];
+
+        if dl_idx == cursor_display_line {
+            let mut spans = Vec::new();
+            let before: String = chars[..cursor_display_col.min(chars.len())]
+                .iter()
+                .collect();
+            let cursor_char = if cursor_display_col < chars.len() {
+                chars[cursor_display_col].to_string()
+            } else {
+                " ".to_string()
+            };
+            let after: String = if cursor_display_col < chars.len() {
+                chars[cursor_display_col + 1..].iter().collect()
+            } else {
+                String::new()
+            };
+            spans.push(Span::styled(before, normal_style));
+            spans.push(Span::styled(cursor_char, cursor_style));
+            if !after.is_empty() {
+                spans.push(Span::styled(after, normal_style));
+            }
+            rendered_lines.push(Line::from(spans));
+        } else {
+            let text: String = chars.iter().collect();
+            rendered_lines.push(Line::from(Span::styled(text, normal_style)));
+        }
+    }
+
+    for _ in rendered_lines.len()..visible_height {
+        rendered_lines.push(Line::from(""));
+    }
+
+    let paragraph = Paragraph::new(rendered_lines);
     frame.render_widget(paragraph, area);
 }
 
