@@ -2,5 +2,5 @@
   "name": "plit-tui",
   "version": "0.1.0",
   "entry": "bundle.js",
-  "permissions": ["network", "env", "storage"]
+  "permissions": ["network", "env", "storage", "filesystem"]
 }
