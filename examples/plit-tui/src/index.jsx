@@ -639,7 +639,7 @@ function InputBox({ state }) {
     <inputbox
       value={state.input}
       cursor={state.cursor}
-      prefix="  \u258E "
+      prefix={"  \u258E "}
       placeholder="Type a message..."
       fg="white"
       focused={focused}
