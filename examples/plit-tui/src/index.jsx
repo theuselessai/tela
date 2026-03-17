@@ -638,10 +638,8 @@ function InputBox({ state }) {
   if (state.input.length === 0 && state.mode !== "insert") {
     return <text height={1} fg="gray">{prefix + "Type a message..."}</text>;
   }
-  if (state.input.indexOf("\n") >= 0) {
-    return <textarea maxHeight={5} value={state.input} cursor={state.cursor} fg="white" />;
-  }
-  return <input height={1} value={prefix + state.input} cursor={prefix.length + state.cursor} fg="white" placeholder={prefix + "Type a message..."} />;
+  var displayInput = state.input.replace(/\n/g, "\u23CE ");
+  return <input height={1} value={prefix + displayInput} cursor={prefix.length + state.cursor} fg="white" placeholder={prefix + "Type a message..."} />;
 }
 
 function ChatView({ state }) {
@@ -650,7 +648,6 @@ function ChatView({ state }) {
       <layout direction="horizontal" flex={1}>
         <layout direction="vertical" width={28}>
           <text>{"  \u25C9 " + (state.agentName || "No agent")}</text>
-          {state.modelName ? <text fg="gray">{"    " + state.modelName}</text> : null}
         </layout>
         <layout direction="vertical" flex={1}>
           <MessageList state={state} />
