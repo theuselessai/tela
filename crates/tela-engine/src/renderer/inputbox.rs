@@ -1,5 +1,5 @@
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
@@ -33,7 +33,7 @@ pub fn render(frame: &mut Frame, area: Rect, element: &Element) {
 
     let prefix_style = Style::default().fg(Color::Gray);
     let normal_style = Style::default().fg(fg).bg(bg);
-    let cursor_style = Style::default().fg(bg).bg(fg);
+    let cursor_style = Style::default().add_modifier(Modifier::UNDERLINED);
 
     // Placeholder when empty and not focused
     if value.is_empty() && !placeholder.is_empty() {
