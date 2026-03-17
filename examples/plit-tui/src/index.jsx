@@ -739,16 +739,13 @@ function ToolBar({ state }) {
 }
 
 function StatusBar({ state }) {
-  var modeIcon, modeText;
+  var modeLabel;
   if (state.command) {
-    modeIcon = "\u25B7";
-    modeText = "command";
+    modeLabel = " \u25B7 command  ";
   } else if (state.mode === "insert") {
-    modeIcon = "\u25C6";
-    modeText = "write";
+    modeLabel = " \u25C6 write    ";
   } else {
-    modeIcon = "\u25C7";
-    modeText = "navigate";
+    modeLabel = " \u25C7 navigate ";
   }
 
   var connIcon = state.wsStatus === "connected" ? "\u25CF" : "\u25CB";
@@ -773,7 +770,7 @@ function StatusBar({ state }) {
   return (
     <layout direction="horizontal" height={1}>
       <text>
-        <span>{"  " + modeIcon + " " + modeText}</span>
+        <span fg="white">{modeLabel}</span>
         <span fg={connFg}>{"  " + connIcon + " " + hostDisplay}</span>
       </text>
       <text align="right" flex={1}>{" " + scrollPct + " "}</text>
