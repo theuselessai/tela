@@ -71,30 +71,31 @@ pub fn render(frame: &mut Frame, area: Rect, element: &Element) {
     let mut char_offset: usize = 0;
 
     for input_line in &input_lines {
-        let line_len = input_line.len();
+        let chars: Vec<char> = input_line.chars().collect();
+        let line_char_len = chars.len();
         let line_start = char_offset;
-        let line_end = char_offset + line_len;
+        let line_end = char_offset + line_char_len;
 
         let bar = Span::styled(prefix.to_string(), prefix_style);
 
         if cursor >= line_start && cursor <= line_end {
             let pos_in_line = cursor - line_start;
-            let before = &input_line[..pos_in_line];
+            let before: String = chars[..pos_in_line].iter().collect();
 
-            if pos_in_line < line_len {
-                let cursor_char = &input_line[pos_in_line..pos_in_line + 1];
-                let rest = &input_line[pos_in_line + 1..];
+            if pos_in_line < line_char_len {
+                let cursor_char: String = chars[pos_in_line..pos_in_line + 1].iter().collect();
+                let rest: String = chars[pos_in_line + 1..].iter().collect();
                 lines.push(Line::from(vec![
                     bar,
-                    Span::styled(before.to_string(), normal_style),
-                    Span::styled(cursor_char.to_string(), cursor_style),
-                    Span::styled(rest.to_string(), normal_style),
+                    Span::styled(before, normal_style),
+                    Span::styled(cursor_char, cursor_style),
+                    Span::styled(rest, normal_style),
                 ]));
             } else {
                 lines.push(Line::from(vec![
                     bar,
-                    Span::styled(before.to_string(), normal_style),
-                    Span::styled("_", Style::default().fg(Color::DarkGray)),
+                    Span::styled(before, normal_style),
+                    Span::styled("_".to_string(), Style::default().fg(Color::DarkGray)),
                 ]));
             }
         } else {
