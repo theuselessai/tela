@@ -634,68 +634,17 @@ function MessageList({ state }) {
 }
 
 function InputBox({ state }) {
-  if (state.input.length === 0 && state.mode !== "insert") {
-    return (
-      <layout direction="vertical" maxHeight={5}>
-        <text> </text>
-        <text>
-          <span fg="gray">{"  \u258E "}</span>
-          <span fg="gray">Type a message...</span>
-        </text>
-      </layout>
-    );
-  }
-
-  var content = state.input || "";
-  var inputLines = content.length === 0 ? [""] : content.split("\n");
-  var cursor = state.cursor;
-  var charOffset = 0;
-  var renderedLines = [h("text", { key: "sp" }, " ")];
-
-  for (var i = 0; i < inputLines.length; i++) {
-    var line = inputLines[i];
-    var lineStart = charOffset;
-    var lineEnd = charOffset + line.length;
-    var bar = h("span", { fg: "gray" }, "  \u258E ");
-
-    if (cursor >= lineStart && cursor <= lineEnd) {
-      var posInLine = cursor - lineStart;
-      var before = line.slice(0, posInLine);
-
-      if (posInLine < line.length) {
-        var cursorChar = line.charAt(posInLine);
-        var after = line.slice(posInLine + 1);
-        renderedLines.push(
-          h("text", { key: i },
-            bar,
-            h("span", null, before),
-            h("span", { fg: "black", bg: "white" }, cursorChar),
-            h("span", null, after)
-          )
-        );
-      } else {
-        renderedLines.push(
-          h("text", { key: i },
-            bar,
-            h("span", null, before),
-            h("span", { fg: "gray" }, "_")
-          )
-        );
-      }
-    } else {
-      renderedLines.push(
-        h("text", { key: i },
-          bar,
-          h("span", null, line)
-        )
-      );
-    }
-
-    charOffset = lineEnd + 1;
-  }
-
-  return h("layout", { direction: "vertical", maxHeight: 5 },
-    renderedLines
+  var focused = state.mode === "insert" && !state.command;
+  return (
+    <inputbox
+      value={state.input}
+      cursor={state.cursor}
+      prefix="  \u258E "
+      placeholder="Type a message..."
+      fg="white"
+      focused={focused}
+      maxHeight={5}
+    />
   );
 }
 
