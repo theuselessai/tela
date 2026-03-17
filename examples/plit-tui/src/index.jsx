@@ -171,9 +171,10 @@ function reduce(state, action) {
         var nextIdx = Math.min(state.selectedAgent + 1, Math.max(0, state.workflows.length - 1));
         return Object.assign({}, state, { selectedAgent: nextIdx });
       }
+      var ndOffset = Math.max(0, state.scrollOffset - 3);
       return Object.assign({}, state, {
-        scrollOffset: state.scrollOffset + 1,
-        stickyBottom: false,
+        scrollOffset: ndOffset,
+        stickyBottom: ndOffset === 0,
         unreadCount: 0,
       });
 
@@ -184,7 +185,7 @@ function reduce(state, action) {
         });
       }
       return Object.assign({}, state, {
-        scrollOffset: Math.max(0, state.scrollOffset - 1),
+        scrollOffset: state.scrollOffset + 3,
         stickyBottom: false,
       });
 
@@ -192,7 +193,7 @@ function reduce(state, action) {
       return Object.assign({}, state, { stickyBottom: true, scrollOffset: 0, unreadCount: 0 });
 
     case "scroll_top":
-      return Object.assign({}, state, { scrollOffset: 0, stickyBottom: false });
+      return Object.assign({}, state, { scrollOffset: 99999, stickyBottom: false });
 
     // -- Agent selection --
 
@@ -494,7 +495,7 @@ function MessageList({ state }) {
   if (state.stickyBottom) {
     selectedIdx = Math.max(0, items.length - 1);
   } else {
-    selectedIdx = Math.min(state.scrollOffset, Math.max(0, items.length - 1));
+    selectedIdx = Math.max(0, items.length - 1 - state.scrollOffset);
   }
 
   return (
@@ -526,28 +527,10 @@ function MessageList({ state }) {
 }
 
 function InputBox({ state }) {
-  var isActive = state.mode === "insert" && !state.command;
-  var prefix = "  \u258E ";
-  
-  if (state.input.length === 0) {
-    var placeholder = "Type a message...";
-    var placeholderFg = isActive ? "gray" : "gray";
-    return (
-      <text height={1}>
-        <span fg="gray">{prefix}</span>
-        <span fg={placeholderFg}>{placeholder}</span>
-        {isActive ? <cursor /> : null}
-      </text>
-    );
+  if (state.input.length === 0 && state.mode !== "insert") {
+    return <text height={1} fg="gray">{"  \u258E Type a message..."}</text>;
   }
-  
-  return (
-    <text height={1}>
-      <span>{prefix}</span>
-      <span>{state.input}</span>
-      <cursor />
-    </text>
-  );
+  return <textarea maxHeight={5} value={state.input} cursor={state.cursor} fg="white" placeholder={"  \u258E Type a message..."} />;
 }
 
 function ChatView({ state }) {
@@ -624,10 +607,12 @@ function StatusBar({ state }) {
 
   var scrollPct = "100%";
   if (!state.stickyBottom && state.activeTab === 1) {
-    if (state.scrollOffset === 0) {
+    if (state.scrollOffset >= 99999) {
       scrollPct = "top";
     } else {
-      scrollPct = state.scrollOffset + "%";
+      var maxScroll = Math.max(1, state.messages.length * 3);
+      var pct = Math.round(100 * (1 - state.scrollOffset / maxScroll));
+      scrollPct = Math.max(0, Math.min(99, pct)) + "%";
     }
   }
 
@@ -641,7 +626,10 @@ function StatusBar({ state }) {
 }
 
 function CommandBar({ state }) {
-  return <text height={1} fg="white">{state.command}</text>;
+  if (state.mode === "insert" && state.command) {
+    return <text height={1} fg="white">{state.command}</text>;
+  }
+  return <text height={1}> </text>;
 }
 
 // --- Main View --------------------------------------------------------------
@@ -661,7 +649,7 @@ function view(state) {
       )}
       <ToolBar state={state} />
       <StatusBar state={state} />
-      {state.command ? <CommandBar state={state} /> : null}
+      <CommandBar state={state} />
     </layout>
   );
 }
@@ -717,4 +705,8 @@ if (PIPELIT_TOKEN) {
 }
 
 // Spinner timer
-setInterval(function() { Tela.dispatch({ type: "spinner_tick" }); }, 80);
+setInterval(function() {
+  if (globalThis.__tela_state__ && globalThis.__tela_state__.nodesRunning) {
+    Tela.dispatch({ type: "spinner_tick" });
+  }
+}, 80);
