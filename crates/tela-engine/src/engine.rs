@@ -141,7 +141,6 @@ pub struct Engine {
     action_rx: tokio::sync::Mutex<mpsc::UnboundedReceiver<serde_json::Value>>,
     _timer_handles: TimerHandles,
     _ws_senders: WsSenders,
-    last_key: Mutex<(String, std::time::Instant)>,
 }
 
 impl Engine {
@@ -201,7 +200,6 @@ impl Engine {
             action_rx: tokio::sync::Mutex::new(action_rx),
             _timer_handles: timer_handles,
             _ws_senders: ws_senders,
-            last_key: Mutex::new((String::new(), std::time::Instant::now())),
         })
     }
 
@@ -488,17 +486,6 @@ impl Engine {
                     KeyCode::F(n) => Some(format!("F{n}")),
                     _ => None,
                 };
-                
-                // Deduplication: skip duplicate key events within 2ms
-                if let Some(ref name) = key_name {
-                    let now = std::time::Instant::now();
-                    let mut last = self.last_key.lock().unwrap();
-                    if last.0 == *name && now.duration_since(last.1).as_millis() < 2 {
-                        // Duplicate key within 2ms — skip
-                        return Ok(false);
-                    }
-                    *last = (name.clone(), now);
-                }
                 
                 if let Some(name) = key_name {
                     return self
