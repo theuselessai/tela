@@ -689,7 +689,7 @@ function ToolBar({ state }) {
       var latest = state.activity[state.activity.length - 1];
       statusText = frame + " " + latest.nodeName;
     }
-    return <text height={1} align="right" fg="yellow">{statusText + " "}</text>;
+    return <text height={1} fg="yellow">{" " + statusText}</text>;
   }
   return <text height={1} align="right" fg="green">{"\u25CF ready "}</text>;
 }
