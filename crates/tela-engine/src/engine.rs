@@ -459,6 +459,84 @@ impl Engine {
         Ok(())
     }
 
+    async fn process_event(&self, event: Event) -> Result<bool> {
+        match event {
+            Event::Key(key) if key.kind == KeyEventKind::Press => {
+                if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c')
+                {
+                    return Ok(true); // quit
+                }
+                let key_name = match key.code {
+                    KeyCode::Char(' ') => Some(" ".to_string()),
+                    KeyCode::Char(c) => Some(c.to_string()),
+                    KeyCode::Enter => Some("Enter".to_string()),
+                    KeyCode::Esc => Some("Escape".to_string()),
+                    KeyCode::Backspace => Some("Backspace".to_string()),
+                    KeyCode::Tab => Some("Tab".to_string()),
+                    KeyCode::Up => Some("Up".to_string()),
+                    KeyCode::Down => Some("Down".to_string()),
+                    KeyCode::Left => Some("Left".to_string()),
+                    KeyCode::Right => Some("Right".to_string()),
+                    KeyCode::Home => Some("Home".to_string()),
+                    KeyCode::End => Some("End".to_string()),
+                    KeyCode::PageUp => Some("PageUp".to_string()),
+                    KeyCode::PageDown => Some("PageDown".to_string()),
+                    KeyCode::Insert => Some("Insert".to_string()),
+                    KeyCode::Delete => Some("Delete".to_string()),
+                    KeyCode::F(n) => Some(format!("F{n}")),
+                    _ => None,
+                };
+                if let Some(name) = key_name {
+                    return self
+                        .reduce_and_process(serde_json::json!({
+                            "type": "__tela_key__",
+                            "key": name,
+                            "ctrl": key.modifiers.contains(KeyModifiers::CONTROL),
+                            "alt": key.modifiers.contains(KeyModifiers::ALT),
+                            "shift": key.modifiers.contains(KeyModifiers::SHIFT),
+                        }))
+                        .await;
+                }
+            }
+            Event::Mouse(mouse) => {
+                let (event_name, button) = match mouse.kind {
+                    crossterm::event::MouseEventKind::Down(btn) => {
+                        let b = match btn {
+                            crossterm::event::MouseButton::Left => "left",
+                            crossterm::event::MouseButton::Right => "right",
+                            crossterm::event::MouseButton::Middle => "middle",
+                        };
+                        ("click", b)
+                    }
+                    crossterm::event::MouseEventKind::ScrollUp => ("scroll", "up"),
+                    crossterm::event::MouseEventKind::ScrollDown => ("scroll", "down"),
+                    _ => return Ok(false),
+                };
+                return self
+                    .reduce_and_process(serde_json::json!({
+                        "type": "__tela_mouse__",
+                        "event": event_name,
+                        "column": mouse.column,
+                        "row": mouse.row,
+                        "button": button,
+                    }))
+                    .await;
+            }
+            Event::Resize(w, h) => {
+                self.update_terminal_size().await;
+                return self
+                    .reduce_and_process(serde_json::json!({
+                        "type": "__tela_resize__",
+                        "columns": w,
+                        "rows": h,
+                    }))
+                    .await;
+            }
+            _ => {}
+        }
+        Ok(false)
+    }
+
     pub async fn run(&self) -> Result<()> {
         enable_raw_mode().context("failed to enable raw mode")?;
         let mut stdout = std::io::stdout();
@@ -474,85 +552,19 @@ impl Engine {
 
         self.update_terminal_size().await;
 
-        loop {
-            let tree = self.view().await?;
-            terminal.draw(|frame| {
-                let area = frame.area();
-                crate::renderer::render_element(frame, area, &tree);
-            })?;
+        let tree = self.view().await?;
+        terminal.draw(|frame| {
+            crate::renderer::render_element(frame, frame.area(), &tree);
+        })?;
 
+        loop {
             let mut should_quit = false;
 
             tokio::select! {
                 event = event_stream.next() => {
                     match event {
-                        Some(Ok(Event::Key(key))) if key.kind == KeyEventKind::Press => {
-                            if key.modifiers.contains(KeyModifiers::CONTROL)
-                                && key.code == KeyCode::Char('c')
-                            {
-                                break;
-                            }
-
-                            let key_name = match key.code {
-                                KeyCode::Char(' ') => Some(" ".to_string()),
-                                KeyCode::Char(c) => Some(c.to_string()),
-                                KeyCode::Enter => Some("Enter".to_string()),
-                                KeyCode::Esc => Some("Escape".to_string()),
-                                KeyCode::Backspace => Some("Backspace".to_string()),
-                                KeyCode::Tab => Some("Tab".to_string()),
-                                KeyCode::Up => Some("Up".to_string()),
-                                KeyCode::Down => Some("Down".to_string()),
-                                KeyCode::Left => Some("Left".to_string()),
-                                KeyCode::Right => Some("Right".to_string()),
-                                KeyCode::Home => Some("Home".to_string()),
-                                KeyCode::End => Some("End".to_string()),
-                                KeyCode::PageUp => Some("PageUp".to_string()),
-                                KeyCode::PageDown => Some("PageDown".to_string()),
-                                KeyCode::Insert => Some("Insert".to_string()),
-                                KeyCode::Delete => Some("Delete".to_string()),
-                                KeyCode::F(n) => Some(format!("F{n}")),
-                                _ => None,
-                            };
-
-                            if let Some(name) = key_name {
-                                should_quit = self.reduce_and_process(serde_json::json!({
-                                    "type": "__tela_key__",
-                                    "key": name,
-                                    "ctrl": key.modifiers.contains(KeyModifiers::CONTROL),
-                                    "alt": key.modifiers.contains(KeyModifiers::ALT),
-                                    "shift": key.modifiers.contains(KeyModifiers::SHIFT),
-                                })).await?;
-                            }
-                        }
-                        Some(Ok(Event::Mouse(mouse))) => {
-                            let (event_name, button) = match mouse.kind {
-                                crossterm::event::MouseEventKind::Down(btn) => {
-                                    let b = match btn {
-                                        crossterm::event::MouseButton::Left => "left",
-                                        crossterm::event::MouseButton::Right => "right",
-                                        crossterm::event::MouseButton::Middle => "middle",
-                                    };
-                                    ("click", b)
-                                }
-                                crossterm::event::MouseEventKind::ScrollUp => ("scroll", "up"),
-                                crossterm::event::MouseEventKind::ScrollDown => ("scroll", "down"),
-                                _ => continue,
-                            };
-                            should_quit = self.reduce_and_process(serde_json::json!({
-                                "type": "__tela_mouse__",
-                                "event": event_name,
-                                "column": mouse.column,
-                                "row": mouse.row,
-                                "button": button,
-                            })).await?;
-                        }
-                        Some(Ok(Event::Resize(w, h))) => {
-                            self.update_terminal_size().await;
-                            should_quit = self.reduce_and_process(serde_json::json!({
-                                "type": "__tela_resize__",
-                                "columns": w,
-                                "rows": h,
-                            })).await?;
+                        Some(Ok(evt)) => {
+                            should_quit = self.process_event(evt).await?;
                         }
                         None => break,
                         _ => {}
@@ -566,9 +578,42 @@ impl Engine {
                 }
             }
 
+            if !should_quit {
+                loop {
+                    tokio::select! {
+                        biased;
+                        event = event_stream.next() => {
+                            match event {
+                                Some(Ok(evt)) => {
+                                    should_quit = self.process_event(evt).await?;
+                                    if should_quit { break; }
+                                    continue;
+                                }
+                                None => { should_quit = true; break; }
+                                _ => { continue; }
+                            }
+                        }
+                        action = action_rx.recv() => {
+                            if let Some(action) = action {
+                                self.handle_internal_action(action).await?;
+                                should_quit = self.check_quit().await;
+                                if should_quit { break; }
+                                continue;
+                            }
+                        }
+                        _ = futures_util::future::ready(()) => { break; }
+                    }
+                }
+            }
+
             if should_quit {
                 break;
             }
+
+            let tree = self.view().await?;
+            terminal.draw(|frame| {
+                crate::renderer::render_element(frame, frame.area(), &tree);
+            })?;
         }
 
         Ok(())
