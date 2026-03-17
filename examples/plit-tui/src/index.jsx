@@ -420,66 +420,76 @@ function reduce(state, action) {
 // --- Components -------------------------------------------------------------
 
 function AgentList({ state }) {
+  var items = [];
   if (state.workflows.length === 0) {
-    return (
-      <box border="single" title="Workflows" flex={1}>
-        <text align="center" fg="gray">
-          {PIPELIT_TOKEN ? "Loading workflows..." : "Set PIPELIT_TOKEN to connect"}
-        </text>
-      </box>
-    );
+    items.push(<text key="empty" fg="gray">  {PIPELIT_TOKEN ? "Loading workflows..." : "Set PIPELIT_TOKEN to connect"}</text>);
+  } else {
+    for (var i = 0; i < state.workflows.length; i++) {
+      var wf = state.workflows[i];
+      var name = wf.name || wf.slug || "unnamed";
+      var marker = i === state.selectedAgent ? "\u25C9 " : "    ";
+      var fg = i === state.selectedAgent ? "white" : "gray";
+      items.push(<text key={i} fg={fg}>{marker + name}</text>);
+    }
   }
   return (
-    <box border="single" title={"Workflows (" + state.workflows.length + ")"} flex={1}>
-      <list selected={state.selectedAgent} highlight_fg="cyan" highlight_symbol="">
-        {state.workflows.map(function(wf, i) {
-          var marker = i === state.selectedAgent ? "\u25C9 " : "\u25CB ";
-          var name = wf.name || wf.slug || "unnamed";
-          return <text key={i}>{marker + name}</text>;
-        })}
-      </list>
-    </box>
+    <layout direction="vertical" flex={1}>
+      {items}
+    </layout>
   );
 }
 
 function MessageList({ state }) {
   if (state.messages.length === 0) {
     return (
-      <box border="single" title="Chat" flex={1}>
-        <text align="center" fg="gray">
-          {state.agentName ? "No messages yet. Press i to type." : "Select a workflow first."}
-        </text>
-      </box>
+      <layout direction="vertical" flex={1}>
+        <text fg="gray">  {state.agentName ? "No messages yet. Press i to type." : "Select a workflow first."}</text>
+      </layout>
     );
   }
 
-  // Build display lines from messages with word wrapping
-  var chatWidth = Tela.columns > 99 ? Tela.columns - 36 : Tela.columns - 4;
+  var chatWidth = Tela.columns > 80 ? Tela.columns - 32 : Tela.columns - 4;
   var contentWidth = Math.max(chatWidth - 4, 10);
   var items = [];
 
   for (var i = 0; i < state.messages.length; i++) {
     var msg = state.messages[i];
-    // Role header
-    items.push({ type: "header", role: msg.role });
-    // Content lines — pre-wrap for reliable scroll
-    var rawLines = msg.content.split("\n");
-    for (var j = 0; j < rawLines.length; j++) {
-      if (rawLines[j].length === 0) {
-        items.push({ type: "content", text: "" });
-      } else if (rawLines[j].length <= contentWidth) {
-        items.push({ type: "content", text: "  " + rawLines[j] });
-      } else {
-        var wrapped = wrapText(rawLines[j], contentWidth);
-        for (var k = 0; k < wrapped.length; k++) {
-          items.push({ type: "content", text: "  " + wrapped[k] });
+    
+    if (msg.role === "user") {
+      items.push({ type: "header", role: "user", text: "\u2503 you" });
+      var rawLines = msg.content.split("\n");
+      for (var j = 0; j < rawLines.length; j++) {
+        if (rawLines[j].length === 0) {
+          items.push({ type: "content", text: "  \u2503 " });
+        } else if (rawLines[j].length <= contentWidth) {
+          items.push({ type: "content", text: "  \u2503 " + rawLines[j] });
+        } else {
+          var wrapped = wrapText(rawLines[j], contentWidth);
+          for (var k = 0; k < wrapped.length; k++) {
+            items.push({ type: "content", text: "  \u2503 " + wrapped[k] });
+          }
+        }
+      }
+    } else {
+      var model = state.modelName || "agent";
+      items.push({ type: "header", role: "assistant", text: "\u25A3 agent \u00B7 " + model });
+      var rawLines = msg.content.split("\n");
+      for (var j = 0; j < rawLines.length; j++) {
+        if (rawLines[j].length === 0) {
+          items.push({ type: "content", text: "" });
+        } else if (rawLines[j].length <= contentWidth) {
+          items.push({ type: "content", text: "  " + rawLines[j] });
+        } else {
+          var wrapped = wrapText(rawLines[j], contentWidth);
+          for (var k = 0; k < wrapped.length; k++) {
+            items.push({ type: "content", text: "  " + wrapped[k] });
+          }
         }
       }
     }
     items.push({ type: "blank", text: "" });
   }
 
-  // Auto-scroll via list selection
   var selectedIdx;
   if (state.stickyBottom) {
     selectedIdx = Math.max(0, items.length - 1);
@@ -488,78 +498,83 @@ function MessageList({ state }) {
   }
 
   return (
-    <box border="single" title="Chat" flex={1}>
+    <layout direction="vertical" flex={1}>
       <list selected={selectedIdx} highlight_symbol="">
         {items.map(function(item, idx) {
           if (item.type === "header") {
             if (item.role === "user") {
               return (
                 <text key={idx}>
-                  <span fg="cyan" bold={true}>{"\u25C7 you"}</span>
+                  <span fg="cyan">{"  " + item.text}</span>
                 </text>
               );
             }
             return (
               <text key={idx}>
-                <span fg="green" bold={true}>{"\u25A3 agent"}</span>
+                <span fg="green">{"  " + item.text}</span>
               </text>
             );
           }
-          return <text key={idx}>{item.text || " "}</text>;
+          if (item.type === "blank") {
+            return <text key={idx}> </text>;
+          }
+          return <text key={idx}>{item.text}</text>;
         })}
       </list>
-    </box>
+    </layout>
   );
 }
 
 function InputBox({ state }) {
   var isActive = state.mode === "insert" && !state.command;
-  var title = "Input";
-  if (isActive) title = "Input [INSERT]";
-  if (state.nodesRunning && state.messageQueue.length > 0) {
-    title = title + " (" + state.messageQueue.length + " queued)";
+  var prefix = "  \u258E ";
+  
+  if (state.input.length === 0) {
+    var placeholder = "Type a message...";
+    var placeholderFg = isActive ? "gray" : "gray";
+    return (
+      <text height={1}>
+        <span fg="gray">{prefix}</span>
+        <span fg={placeholderFg}>{placeholder}</span>
+        {isActive ? <cursor /> : null}
+      </text>
+    );
   }
+  
   return (
-    <box border="single" title={title} height={3}>
-      <textarea
-        value={state.input}
-        cursor={state.cursor}
-        placeholder={isActive ? "Type a message... (Ctrl+J newline)" : "Press i to type"}
-        fg="white"
-      />
-    </box>
+    <text height={1}>
+      <span>{prefix}</span>
+      <span>{state.input}</span>
+      <cursor />
+    </text>
   );
 }
 
 function ChatView({ state }) {
-  if (Tela.columns > 99) {
+  if (Tela.columns > 80) {
     return (
       <layout direction="horizontal" flex={1}>
-        <box border="single" title="Agent" width={30}>
-          <layout direction="vertical">
-            <text bold={true} fg="cyan">{state.agentName || "No agent"}</text>
-            {state.modelName ? <text fg="gray">{state.modelName}</text> : null}
-            <text height={1} />
-            {state.activity.length > 0 ? (
-              <layout direction="vertical">
-                <text fg="yellow" bold={true}>Activity:</text>
-                {state.activity.map(function(a, ai) {
-                  var color = a.status === "completed" ? "green"
-                    : a.status === "running" ? "yellow" : "gray";
-                  return <text key={ai} fg={color}>{"  " + a.nodeName + ": " + a.status}</text>;
-                })}
-              </layout>
-            ) : null}
-            {state.toolCalls.length > 0 ? (
-              <layout direction="vertical">
-                <text fg="magenta" bold={true}>Tools:</text>
-                {state.toolCalls.slice(-5).map(function(tc, ti) {
-                  return <text key={ti} fg="gray">{"  " + tc.toolName}</text>;
-                })}
-              </layout>
-            ) : null}
-          </layout>
-        </box>
+        <layout direction="vertical" width={28}>
+          <text>{"  \u25C9 " + (state.agentName || "No agent")}</text>
+          {state.modelName ? <text fg="gray">{"    " + state.modelName}</text> : null}
+          <text height={1} />
+          {state.activity.length > 0 ? (
+            <layout direction="vertical">
+              {state.activity.map(function(a, ai) {
+                var color = a.status === "completed" ? "green"
+                  : a.status === "running" ? "yellow" : "gray";
+                return <text key={ai} fg={color}>{"    " + a.nodeName + ": " + a.status}</text>;
+              })}
+            </layout>
+          ) : null}
+          {state.toolCalls.length > 0 ? (
+            <layout direction="vertical">
+              {state.toolCalls.slice(-5).map(function(tc, ti) {
+                return <text key={ti} fg="gray">{"    " + tc.toolName}</text>;
+              })}
+            </layout>
+          ) : null}
+        </layout>
         <layout direction="vertical" flex={1}>
           <MessageList state={state} />
           <InputBox state={state} />
@@ -589,35 +604,38 @@ function ToolBar({ state }) {
 }
 
 function StatusBar({ state }) {
-  var modeText;
-  var modeColor;
+  var modeIcon, modeText;
   if (state.command) {
-    modeText = " COMMAND ";
-    modeColor = "magenta";
+    modeIcon = "\u25B7";
+    modeText = "command";
   } else if (state.mode === "insert") {
-    modeText = " INSERT ";
-    modeColor = "green";
+    modeIcon = "\u25C6";
+    modeText = "write";
   } else {
-    modeText = " NORMAL ";
-    modeColor = "blue";
+    modeIcon = "\u25C7";
+    modeText = "navigate";
   }
 
-  var connText = " " + state.wsStatus + " ";
-  var connColor = state.wsStatus === "connected" ? "green" : "red";
+  var connIcon = state.wsStatus === "connected" ? "\u25CF" : "\u25CB";
+  var connFg = state.wsStatus === "connected" ? "green" : "gray";
+  
+  var hostDisplay = state.hostDisplay || "";
+  hostDisplay = hostDisplay.replace(/^https?:\/\//, "");
 
-  var scrollText = "";
+  var scrollPct = "100%";
   if (!state.stickyBottom && state.activeTab === 1) {
-    scrollText = " [scroll: " + state.scrollOffset + "]";
-  }
-  if (state.unreadCount > 0) {
-    scrollText = scrollText + " (" + state.unreadCount + " new)";
+    if (state.scrollOffset === 0) {
+      scrollPct = "top";
+    } else {
+      scrollPct = state.scrollOffset + "%";
+    }
   }
 
   return (
     <text height={1}>
-      <span fg="black" bg={modeColor} bold={true}>{modeText}</span>
-      <span fg="black" bg={connColor}>{connText}</span>
-      <span fg="gray">{" " + state.hostDisplay + scrollText}</span>
+      <span>{"  " + modeIcon + " " + modeText}</span>
+      <span fg={connFg}>{"  " + connIcon + " " + hostDisplay}</span>
+      <span align="right">{" " + scrollPct + " "}</span>
     </text>
   );
 }
@@ -631,9 +649,11 @@ function CommandBar({ state }) {
 function view(state) {
   return (
     <layout direction="vertical">
-      <tabs height={1} selected={state.activeTab} highlight_fg="white" divider=" | ">
-        {state.tabTitles.map(function(t, i) { return <text key={i}>{t}</text>; })}
-      </tabs>
+      <text height={1}>
+        <span fg={state.activeTab === 0 ? "white" : "gray"} bold={state.activeTab === 0}>{"  Workflows"}</span>
+        <span>{"    "}</span>
+        <span fg={state.activeTab === 1 ? "white" : "gray"} bold={state.activeTab === 1}>{"Chat"}</span>
+      </text>
       {state.activeTab === 0 ? (
         <AgentList state={state} />
       ) : (
