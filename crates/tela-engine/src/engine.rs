@@ -241,6 +241,38 @@ impl Engine {
             .await
     }
 
+    async fn reduce_and_process(&self, action: serde_json::Value) -> Result<bool> {
+        let action_json = serde_json::to_string(&action)?;
+        self.ctx
+            .with(move |ctx| -> Result<bool> {
+                let script = format!(
+                    r#"
+                    (function() {{
+                        var action = JSON.parse('{}');
+                        if (typeof reduce === 'function') {{
+                            globalThis.__tela_state__ = reduce(globalThis.__tela_state__, action);
+                        }}
+                        for (var i = 0; i < 100; i++) {{
+                            var q = globalThis.__tela_dispatch_queue__;
+                            if (!q || q.length === 0) break;
+                            globalThis.__tela_dispatch_queue__ = [];
+                            for (var j = 0; j < q.length; j++) {{
+                                if (typeof reduce === 'function') {{
+                                    globalThis.__tela_state__ = reduce(globalThis.__tela_state__, q[j]);
+                                }}
+                            }}
+                        }}
+                        return globalThis.__tela_quit__ === true;
+                    }})();
+                    "#,
+                    action_json.replace('\\', "\\\\").replace('\'', "\\'")
+                );
+                ctx.eval::<bool, _>(script.as_str())
+                    .map_err(|e| anyhow!("reduce_and_process failed: {e}"))
+            })
+            .await
+    }
+
     pub async fn reduce(&self, action: serde_json::Value) -> Result<()> {
         let action_json = serde_json::to_string(&action)?;
         self.ctx
@@ -449,6 +481,8 @@ impl Engine {
                 crate::renderer::render_element(frame, area, &tree);
             })?;
 
+            let mut should_quit = false;
+
             tokio::select! {
                 event = event_stream.next() => {
                     match event {
@@ -481,7 +515,7 @@ impl Engine {
                             };
 
                             if let Some(name) = key_name {
-                                self.reduce(serde_json::json!({
+                                should_quit = self.reduce_and_process(serde_json::json!({
                                     "type": "__tela_key__",
                                     "key": name,
                                     "ctrl": key.modifiers.contains(KeyModifiers::CONTROL),
@@ -504,7 +538,7 @@ impl Engine {
                                 crossterm::event::MouseEventKind::ScrollDown => ("scroll", "down"),
                                 _ => continue,
                             };
-                            self.reduce(serde_json::json!({
+                            should_quit = self.reduce_and_process(serde_json::json!({
                                 "type": "__tela_mouse__",
                                 "event": event_name,
                                 "column": mouse.column,
@@ -514,7 +548,7 @@ impl Engine {
                         }
                         Some(Ok(Event::Resize(w, h))) => {
                             self.update_terminal_size().await;
-                            self.reduce(serde_json::json!({
+                            should_quit = self.reduce_and_process(serde_json::json!({
                                 "type": "__tela_resize__",
                                 "columns": w,
                                 "rows": h,
@@ -527,17 +561,12 @@ impl Engine {
                 action = action_rx.recv() => {
                     if let Some(action) = action {
                         self.handle_internal_action(action).await?;
+                        should_quit = self.check_quit().await;
                     }
                 }
             }
 
-            let dispatched = self.drain_dispatch_queue().await?;
-            for action in dispatched {
-                self.reduce(action).await?;
-            }
-            self.execute_pending_jobs().await;
-
-            if self.check_quit().await {
+            if should_quit {
                 break;
             }
         }
