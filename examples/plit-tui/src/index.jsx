@@ -618,14 +618,14 @@ function MessageList({ state }) {
           if (item.type === "blank") {
             return <text key={idx}> </text>;
           }
-          if (item.type === "content" && item.role === "user") {
-            return (
-              <text key={idx}>
-                <span fg="cyan">{"  \u2503 "}</span>
-                <span>{item.text.slice(5)}</span>
-              </text>
-            );
-          }
+           if (item.type === "content" && item.role === "user") {
+             return (
+               <text key={idx}>
+                 <span fg="cyan">{"  \u2503 "}</span>
+                 <span>{item.text.slice(4)}</span>
+               </text>
+             );
+           }
           return <text key={idx}>{item.text}</text>;
         })}
       </list>
