@@ -14,6 +14,7 @@ pub mod inputbox;
 pub mod layout;
 pub mod linegauge;
 pub mod list;
+pub mod popup;
 pub mod sparkline_widget;
 pub mod table;
 pub mod tabs;
@@ -37,6 +38,7 @@ pub fn render_element(frame: &mut Frame, area: Rect, element: &Element) {
         "text" => text::render(frame, area, element),
         "layout" => layout::render(frame, area, element),
         "list" => list::render(frame, area, element),
+        "popup" => popup::render(frame, area, element),
         "table" => table::render(frame, area, element),
         "tabs" => tabs::render(frame, area, element),
         "input" => input::render(frame, area, element),
