@@ -3,6 +3,11 @@ name = "tela-engine"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
+description = "Runtime engine for Tela — React Native for terminals. QuickJS bridge, native APIs, and ratatui renderer."
+repository = "https://github.com/theuselessai/tela"
+homepage = "https://github.com/theuselessai/tela"
+keywords = ["tui", "terminal", "jsx", "ratatui", "quickjs"]
+categories = ["command-line-interface", "gui"]
 
 [dependencies]
 rquickjs = { version = "0.9", features = ["futures", "loader", "macro"] }

@@ -3,9 +3,18 @@ name = "tela-cli"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
+description = "CLI for Tela — React Native for terminals. Run, dev, and init JSX terminal apps."
+repository = "https://github.com/theuselessai/tela"
+homepage = "https://github.com/theuselessai/tela"
+keywords = ["tui", "terminal", "jsx", "ratatui", "cli"]
+categories = ["command-line-interface"]
+
+[[bin]]
+name = "tela"
+path = "src/main.rs"
 
 [dependencies]
-tela-engine = { path = "../tela-engine" }
+tela-engine = { path = "../tela-engine", version = "0.1.0" }
 clap = { version = "4", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 anyhow = "1"
