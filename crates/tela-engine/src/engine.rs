@@ -245,30 +245,36 @@ impl Engine {
         let action_json = serde_json::to_string(&action)?;
         self.ctx
             .with(move |ctx| -> Result<bool> {
-                let script = format!(
-                    r#"
-                    (function() {{
-                        var action = JSON.parse('{}');
-                        if (typeof reduce === 'function') {{
+                // Set action directly via JSON.parse in a separate eval
+                // Double-encode: serde_json::to_string(&action_json) wraps the JSON string
+                // in quotes with proper escaping, so it's a valid JS string literal.
+                let set_action = format!(
+                    "globalThis.__tela_pending_action__ = JSON.parse({});",
+                    serde_json::to_string(&action_json).unwrap_or_else(|_| "\"{}\"".to_string())
+                );
+                ctx.eval::<(), _>(set_action.as_str())
+                    .map_err(|e| anyhow!("failed to set action: {e}"))?;
+
+                ctx.eval::<bool, _>(r#"
+                    (function() {
+                        var action = globalThis.__tela_pending_action__;
+                        if (typeof reduce === 'function') {
                             globalThis.__tela_state__ = reduce(globalThis.__tela_state__, action);
-                        }}
-                        for (var i = 0; i < 100; i++) {{
+                        }
+                        for (var i = 0; i < 100; i++) {
                             var q = globalThis.__tela_dispatch_queue__;
                             if (!q || q.length === 0) break;
                             globalThis.__tela_dispatch_queue__ = [];
-                            for (var j = 0; j < q.length; j++) {{
-                                if (typeof reduce === 'function') {{
+                            for (var j = 0; j < q.length; j++) {
+                                if (typeof reduce === 'function') {
                                     globalThis.__tela_state__ = reduce(globalThis.__tela_state__, q[j]);
-                                }}
-                            }}
-                        }}
+                                }
+                            }
+                        }
                         return globalThis.__tela_quit__ === true;
-                    }})();
-                    "#,
-                    action_json.replace('\\', "\\\\").replace('\'', "\\'")
-                );
-                ctx.eval::<bool, _>(script.as_str())
-                    .map_err(|e| anyhow!("reduce_and_process failed: {e}"))
+                    })();
+                "#)
+                .map_err(|e| anyhow!("reduce_and_process failed: {e}"))
             })
             .await
     }
@@ -277,19 +283,22 @@ impl Engine {
         let action_json = serde_json::to_string(&action)?;
         self.ctx
             .with(move |ctx| -> Result<()> {
-                let script = format!(
-                    r#"
-                    (function() {{
-                        var action = JSON.parse('{}');
-                        if (typeof reduce === 'function') {{
-                            globalThis.__tela_state__ = reduce(globalThis.__tela_state__, action);
-                        }}
-                    }})();
-                    "#,
-                    action_json.replace('\\', "\\\\").replace('\'', "\\'")
+                let set_action = format!(
+                    "globalThis.__tela_pending_action__ = JSON.parse({});",
+                    serde_json::to_string(&action_json).unwrap_or_else(|_| "\"{}\"".to_string())
                 );
-                ctx.eval::<(), _>(script.as_str())
-                    .map_err(|e| anyhow!("reduce failed: {e}"))?;
+                ctx.eval::<(), _>(set_action.as_str())
+                    .map_err(|e| anyhow!("failed to set action: {e}"))?;
+
+                ctx.eval::<(), _>(r#"
+                    (function() {
+                        var action = globalThis.__tela_pending_action__;
+                        if (typeof reduce === 'function') {
+                            globalThis.__tela_state__ = reduce(globalThis.__tela_state__, action);
+                        }
+                    })();
+                "#)
+                .map_err(|e| anyhow!("reduce failed: {e}"))?;
                 Ok(())
             })
             .await?;
