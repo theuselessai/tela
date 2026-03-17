@@ -101,53 +101,97 @@ function wrapText(text, width) {
 }
 
 function extractModelName(workflow) {
-  if (!workflow || !workflow.nodes || !workflow.edges) return "";
-  var trigger = null;
-  for (var i = 0; i < workflow.nodes.length; i++) {
-    if (workflow.nodes[i].component_type === "trigger_chat") {
-      trigger = workflow.nodes[i];
-      break;
-    }
-  }
-  if (!trigger) return "";
-  // Use node_id or name field for matching
-  var triggerId = trigger.node_id || trigger.name;
-  var agentEdge = null;
-  for (var i = 0; i < workflow.edges.length; i++) {
-    if (workflow.edges[i].source_node_id === triggerId) {
-      agentEdge = workflow.edges[i];
-      break;
-    }
-  }
-  if (!agentEdge) return "";
-  var agentId = agentEdge.target_node_id;
-  var llmEdge = null;
-  for (var i = 0; i < workflow.edges.length; i++) {
-    if (workflow.edges[i].target_node_id === agentId && workflow.edges[i].edge_label === "llm") {
-      llmEdge = workflow.edges[i];
-      break;
-    }
-  }
-  if (!llmEdge) return "";
-  var llmNode = null;
-  for (var i = 0; i < workflow.nodes.length; i++) {
-    var nodeId = workflow.nodes[i].node_id || workflow.nodes[i].name;
-    if (nodeId === llmEdge.source_node_id) {
-      llmNode = workflow.nodes[i];
-      break;
-    }
-  }
-  if (!llmNode || !llmNode.config) {
-    // Fallback: find any ai_model node with model_name in config
-    for (var i = 0; i < workflow.nodes.length; i++) {
-      var node = workflow.nodes[i];
-      if (node.component_type === "ai_model" && node.config && node.config.model_name) {
-        return node.config.model_name;
+   if (!workflow || !workflow.nodes || !workflow.edges) return "";
+   var trigger = null;
+   for (var i = 0; i < workflow.nodes.length; i++) {
+     if (workflow.nodes[i].component_type === "trigger_chat") {
+       trigger = workflow.nodes[i];
+       break;
+     }
+   }
+   if (!trigger) return "";
+   // Use node_id or name field for matching
+   var triggerId = trigger.node_id || trigger.name;
+   var agentEdge = null;
+   for (var i = 0; i < workflow.edges.length; i++) {
+     if (workflow.edges[i].source_node_id === triggerId) {
+       agentEdge = workflow.edges[i];
+       break;
+     }
+   }
+   if (!agentEdge) return "";
+   var agentId = agentEdge.target_node_id;
+   var llmEdge = null;
+   for (var i = 0; i < workflow.edges.length; i++) {
+     if (workflow.edges[i].target_node_id === agentId && workflow.edges[i].edge_label === "llm") {
+       llmEdge = workflow.edges[i];
+       break;
+     }
+   }
+   if (!llmEdge) return "";
+   var llmNode = null;
+   for (var i = 0; i < workflow.nodes.length; i++) {
+     var nodeId = workflow.nodes[i].node_id || workflow.nodes[i].name;
+     if (nodeId === llmEdge.source_node_id) {
+       llmNode = workflow.nodes[i];
+       break;
+     }
+   }
+   if (!llmNode || !llmNode.config) {
+     // Fallback: find any ai_model node with model_name in config
+     for (var i = 0; i < workflow.nodes.length; i++) {
+       var node = workflow.nodes[i];
+       if (node.component_type === "ai_model" && node.config && node.config.model_name) {
+         return node.config.model_name;
+       }
+     }
+     return "";
+   }
+   return llmNode.config.model_name || "";
+}
+
+function countMessageItems(state) {
+  if (state.messages.length === 0) return 0;
+  var chatWidth = Tela.columns > 80 ? Tela.columns - 32 : Tela.columns - 4;
+  var contentWidth = Math.max(chatWidth - 4, 10);
+  var count = 0;
+  for (var i = 0; i < state.messages.length; i++) {
+    var msg = state.messages[i];
+    count++; // header
+    var rawLines = msg.content.split("\n");
+    for (var j = 0; j < rawLines.length; j++) {
+      if (rawLines[j].length === 0) {
+        count++;
+      } else if (rawLines[j].length <= contentWidth) {
+        count++;
+      } else {
+        count += Math.ceil(rawLines[j].length / contentWidth);
       }
     }
-    return "";
+    count++; // blank line
   }
-  return llmNode.config.model_name || "";
+  return count;
+}
+
+function countRenderedLines(state) {
+  if (state.messages.length === 0) return 0;
+  var chatWidth = Tela.columns > 80 ? Tela.columns - 32 : Tela.columns - 4;
+  var contentWidth = Math.max(chatWidth - 4, 10);
+  var count = 0;
+  for (var i = 0; i < state.messages.length; i++) {
+    var msg = state.messages[i];
+    count++; // header line
+    var rawLines = msg.content.split("\n");
+    for (var j = 0; j < rawLines.length; j++) {
+      if (rawLines[j].length <= contentWidth) {
+        count++;
+      } else {
+        count += Math.ceil(rawLines[j].length / contentWidth);
+      }
+    }
+    count++; // blank separator
+  }
+  return count;
 }
 
 // --- API Helpers ------------------------------------------------------------
@@ -229,18 +273,18 @@ function reduce(state, action) {
 
     // -- Navigation --
 
-    case "nav_down":
-      if (state.activeTab === 0) {
-        var nextIdx = Math.min(state.selectedAgent + 1, Math.max(0, state.workflows.length - 1));
-        return Object.assign({}, state, { selectedAgent: nextIdx });
-      }
-      var maxOffset = Math.max(0, state.messages.length * 5);
-      var ndOffset = Math.max(0, Math.min(state.scrollOffset, maxOffset) - 3);
-      return Object.assign({}, state, {
-        scrollOffset: ndOffset,
-        stickyBottom: ndOffset === 0,
-        unreadCount: 0,
-      });
+      case "nav_down":
+        if (state.activeTab === 0) {
+          var nextIdx = Math.min(state.selectedAgent + 1, Math.max(0, state.workflows.length - 1));
+          return Object.assign({}, state, { selectedAgent: nextIdx });
+        }
+        var maxOffset = Math.max(0, countRenderedLines(state));
+        var ndOffset = Math.max(0, Math.min(state.scrollOffset, maxOffset) - 3);
+        return Object.assign({}, state, {
+          scrollOffset: ndOffset,
+          stickyBottom: ndOffset === 0,
+          unreadCount: 0,
+        });
 
     case "nav_up":
       if (state.activeTab === 0) {
@@ -711,16 +755,16 @@ function StatusBar({ state }) {
   var hostDisplay = state.hostDisplay || "";
   hostDisplay = hostDisplay.replace(/^https?:\/\//, "");
 
-  var scrollPct = "100%";
-  if (!state.stickyBottom && state.activeTab === 1) {
-    if (state.scrollOffset >= 99999) {
-      scrollPct = "top";
-    } else {
-      var maxScroll = Math.max(1, state.messages.length * 3);
-      var pct = Math.round(100 * (1 - state.scrollOffset / maxScroll));
-      scrollPct = Math.max(0, Math.min(99, pct)) + "%";
+   var scrollPct = "100%";
+    if (!state.stickyBottom && state.activeTab === 1) {
+      if (state.scrollOffset >= 99999) {
+        scrollPct = "top";
+      } else {
+        var maxScroll = Math.max(1, countRenderedLines(state));
+        var pct = Math.round(100 * (1 - state.scrollOffset / maxScroll));
+        scrollPct = Math.max(0, Math.min(99, pct)) + "%";
+      }
     }
-  }
 
   return (
     <layout direction="horizontal" height={1}>
