@@ -101,26 +101,26 @@ function wrapText(text, width) {
 // --- API Helpers ------------------------------------------------------------
 
 function sendMessage(slug, text) {
-  fetch(PIPELIT_URL + "/api/v1/workflows/" + slug + "/chat/", {
-    method: "POST",
-    headers: {
-      "Authorization": "Bearer " + PIPELIT_TOKEN,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ text: text }),
-  }).then(function(res) {
-    if (res.ok) {
-      return res.json();
-    }
-  }).then(function(data) {
-    if (data && data.execution_id && globalThis.__plit_ws__) {
-      globalThis.__plit_ws__.send(JSON.stringify({
-        type: "subscribe",
-        channel: data.execution_id,
-      }));
-    }
-  });
-}
+   fetch(PIPELIT_URL + "/api/v1/workflows/" + slug + "/chat/", {
+     method: "POST",
+     headers: {
+       "Authorization": "Bearer " + PIPELIT_TOKEN,
+       "Content-Type": "application/json",
+     },
+     body: JSON.stringify({ text: text }),
+   }).then(function(res) {
+      if (res.ok) {
+        return res.json();
+      }
+     }).then(function(data) {
+       if (data && data.execution_id && globalThis.__plit_ws__) {
+         globalThis.__plit_ws__.send(JSON.stringify({
+           type: "subscribe",
+           channel: data.execution_id,
+         }));
+       }
+     });
+ }
 
 function fetchHistory(slug) {
   fetch(PIPELIT_URL + "/api/v1/workflows/" + slug + "/chat/history?limit=200", {
@@ -199,22 +199,25 @@ function reduce(state, action) {
 
     // -- Agent selection --
 
-    case "agent_select":
-      if (state.activeTab !== 0 || state.workflows.length === 0) return state;
-      var wf = state.workflows[state.selectedAgent];
-      if (!wf) return state;
-      var selSlug = wf.slug || wf.name || "";
-      if (selSlug) fetchHistory(selSlug);
-      return Object.assign({}, state, {
-        activeTab: 1,
-        agentName: wf.name || wf.slug || "unnamed",
-        modelName: wf.model || "",
-        messages: [],
-        scrollOffset: 0,
-        stickyBottom: true,
-        activity: [],
-        toolCalls: [],
-      });
+      case "agent_select":
+        if (state.activeTab !== 0 || state.workflows.length === 0) return state;
+        var wf = state.workflows[state.selectedAgent];
+        if (!wf) return state;
+        var selSlug = wf.slug || wf.name || "";
+        if (selSlug) fetchHistory(selSlug);
+        if (globalThis.__plit_ws__ && globalThis.__plit_ws__.readyState === 1) {
+          globalThis.__plit_ws__.send(JSON.stringify({ type: "subscribe", channel: "workflow:" + selSlug }));
+        }
+       return Object.assign({}, state, {
+         activeTab: 1,
+         agentName: wf.name || wf.slug || "unnamed",
+         modelName: wf.model || "",
+         messages: [],
+         scrollOffset: 0,
+         stickyBottom: true,
+         activity: [],
+         toolCalls: [],
+       });
 
     // -- Text input --
 
@@ -250,36 +253,36 @@ function reduce(state, action) {
         cursor: state.cursor + 1,
       });
 
-    case "input_submit":
-      // Command mode: parse command
-      if (state.command) {
-        var cmd = state.command.slice(1).trim();
-        if (cmd === "q" || cmd === "quit") {
-          Tela.quit();
-          return state;
+     case "input_submit":
+       // Command mode: parse command
+       if (state.command) {
+         var cmd = state.command.slice(1).trim();
+         if (cmd === "q" || cmd === "quit") {
+           Tela.quit();
+           return state;
+         }
+         return Object.assign({}, state, { mode: "normal", command: "" });
+       }
+       // Chat submit
+       if (state.input.trim().length === 0) {
+         return Object.assign({}, state, { mode: "normal" });
+       }
+       var submitText = state.input.trim();
+       // Queue if nodes are running
+       if (state.nodesRunning) {
+         return Object.assign({}, state, {
+           messageQueue: state.messageQueue.concat([submitText]),
+           input: "",
+           cursor: 0,
+           mode: "normal",
+         });
+       }
+       // Send via API
+        var submitSlug = "";
+        if (state.workflows.length > 0 && state.workflows[state.selectedAgent]) {
+          submitSlug = state.workflows[state.selectedAgent].slug;
         }
-        return Object.assign({}, state, { mode: "normal", command: "" });
-      }
-      // Chat submit
-      if (state.input.trim().length === 0) {
-        return Object.assign({}, state, { mode: "normal" });
-      }
-      var submitText = state.input.trim();
-      // Queue if nodes are running
-      if (state.nodesRunning) {
-        return Object.assign({}, state, {
-          messageQueue: state.messageQueue.concat([submitText]),
-          input: "",
-          cursor: 0,
-          mode: "normal",
-        });
-      }
-      // Send via API
-      var submitSlug = "";
-      if (state.workflows.length > 0 && state.workflows[state.selectedAgent]) {
-        submitSlug = state.workflows[state.selectedAgent].slug;
-      }
-      if (submitSlug) sendMessage(submitSlug, submitText);
+        if (submitSlug) sendMessage(submitSlug, submitText);
       return Object.assign({}, state, {
         messages: state.messages.concat([{ role: "user", content: submitText }]),
         input: "",
@@ -296,9 +299,9 @@ function reduce(state, action) {
     case "ws_disconnected":
       return Object.assign({}, state, { wsStatus: "disconnected" });
 
-    case "ws_message": {
-      var wsData = action.data;
-      if (!wsData || !wsData.type) return state;
+      case "ws_message": {
+        var wsData = action.data;
+        if (!wsData || !wsData.type) return state;
 
       switch (wsData.type) {
         case "chat_message": {
@@ -703,27 +706,35 @@ if (PIPELIT_TOKEN) {
 // WebSocket connection with auto-reconnect
 if (PIPELIT_TOKEN) {
   var wsUrl = PIPELIT_URL.replace("http", "ws") + "/ws/?token=" + PIPELIT_TOKEN;
-  function connectWs() {
-    var ws = new WebSocket(wsUrl);
-    ws.onopen = function() {
-      Tela.dispatch({ type: "ws_connected" });
-    };
+   function connectWs() {
+      var ws = new WebSocket(wsUrl);
+       ws.onopen = function() {
+         Tela.dispatch({ type: "ws_connected" });
+         // Subscribe to current workflow channel
+         var state = globalThis.__tela_state__;
+         if (state && state.workflows && state.workflows.length > 0) {
+           var slug = state.workflows[state.selectedAgent || 0].slug || state.workflows[state.selectedAgent || 0].name || "";
+           if (slug) {
+             ws.send(JSON.stringify({ type: "subscribe", channel: "workflow:" + slug }));
+           }
+         }
+       };
     ws.onclose = function() {
       Tela.dispatch({ type: "ws_disconnected" });
       setTimeout(connectWs, 3000);
     };
-    ws.onmessage = function(e) {
-      try {
-        var msg = JSON.parse(e.data);
-        if (msg.type === "ping") {
-          ws.send(JSON.stringify({ type: "pong" }));
-          return;
+      ws.onmessage = function(e) {
+        try {
+          var msg = JSON.parse(e.data);
+          if (msg.type === "ping") {
+            ws.send(JSON.stringify({ type: "pong" }));
+            return;
+          }
+          Tela.dispatch({ type: "ws_message", data: msg });
+        } catch (err) {
+          console.error("WS parse error:", err);
         }
-        Tela.dispatch({ type: "ws_message", data: msg });
-      } catch (err) {
-        console.error("WS parse error:", err);
-      }
-    };
+      };
     ws.onerror = function() {
       console.error("WS error");
     };
