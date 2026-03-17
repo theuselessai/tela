@@ -273,18 +273,19 @@ function reduce(state, action) {
 
     // -- Navigation --
 
-      case "nav_down":
-        if (state.activeTab === 0) {
-          var nextIdx = Math.min(state.selectedAgent + 1, Math.max(0, state.workflows.length - 1));
-          return Object.assign({}, state, { selectedAgent: nextIdx });
-        }
-        var maxOffset = Math.max(0, countRenderedLines(state));
-        var ndOffset = Math.max(0, Math.min(state.scrollOffset, maxOffset) - 3);
-        return Object.assign({}, state, {
-          scrollOffset: ndOffset,
-          stickyBottom: ndOffset === 0,
-          unreadCount: 0,
-        });
+     case "nav_down":
+         if (state.activeTab === 0) {
+           var nextIdx = Math.min(state.selectedAgent + 1, Math.max(0, state.workflows.length - 1));
+           return Object.assign({}, state, { selectedAgent: nextIdx });
+         }
+         var visibleHeight = Math.max(1, Tela.rows - 6);
+         var maxOffset = Math.max(0, countRenderedLines(state) - visibleHeight);
+         var ndOffset = Math.max(0, Math.min(state.scrollOffset, maxOffset) - 3);
+         return Object.assign({}, state, {
+           scrollOffset: ndOffset,
+           stickyBottom: ndOffset === 0,
+           unreadCount: 0,
+         });
 
     case "nav_up":
       if (state.activeTab === 0) {
@@ -300,8 +301,9 @@ function reduce(state, action) {
     case "scroll_bottom":
       return Object.assign({}, state, { stickyBottom: true, scrollOffset: 0, unreadCount: 0 });
 
-    case "scroll_top":
-      return Object.assign({}, state, { scrollOffset: 99999, stickyBottom: false });
+     case "scroll_top":
+       var topMax = Math.max(0, countRenderedLines(state) - Math.max(1, Tela.rows - 6));
+       return Object.assign({}, state, { scrollOffset: topMax, stickyBottom: false });
 
     // -- Agent selection --
 
@@ -756,15 +758,17 @@ function StatusBar({ state }) {
   hostDisplay = hostDisplay.replace(/^https?:\/\//, "");
 
    var scrollPct = "100%";
-    if (!state.stickyBottom && state.activeTab === 1) {
-      if (state.scrollOffset >= 99999) {
-        scrollPct = "top";
-      } else {
-        var maxScroll = Math.max(1, countRenderedLines(state));
-        var pct = Math.round(100 * (1 - state.scrollOffset / maxScroll));
-        scrollPct = Math.max(0, Math.min(99, pct)) + "%";
-      }
-    }
+     if (!state.stickyBottom && state.activeTab === 1) {
+       var totalLines = countRenderedLines(state);
+       var visibleHeight = Math.max(1, Tela.rows - 6);
+       var maxScroll = Math.max(1, totalLines - visibleHeight);
+       if (state.scrollOffset >= maxScroll) {
+         scrollPct = "top";
+       } else {
+         var pct = Math.round(100 * (1 - state.scrollOffset / maxScroll));
+         scrollPct = Math.max(0, Math.min(99, pct)) + "%";
+       }
+     }
 
   return (
     <layout direction="horizontal" height={1}>
