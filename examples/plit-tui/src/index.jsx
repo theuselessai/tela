@@ -634,12 +634,69 @@ function MessageList({ state }) {
 }
 
 function InputBox({ state }) {
-  var prefix = "  \u258E ";
   if (state.input.length === 0 && state.mode !== "insert") {
-    return <text height={1} fg="gray">{prefix + "Type a message..."}</text>;
+    return (
+      <layout direction="vertical" maxHeight={5}>
+        <text> </text>
+        <text>
+          <span fg="gray">{"  \u258E "}</span>
+          <span fg="gray">Type a message...</span>
+        </text>
+      </layout>
+    );
   }
-  var displayInput = state.input.replace(/\n/g, "\u23CE ");
-  return <input height={1} value={prefix + displayInput} cursor={prefix.length + state.cursor} fg="white" placeholder={prefix + "Type a message..."} />;
+
+  var content = state.input || "";
+  var inputLines = content.length === 0 ? [""] : content.split("\n");
+  var cursor = state.cursor;
+  var charOffset = 0;
+  var renderedLines = [h("text", { key: "sp" }, " ")];
+
+  for (var i = 0; i < inputLines.length; i++) {
+    var line = inputLines[i];
+    var lineStart = charOffset;
+    var lineEnd = charOffset + line.length;
+    var bar = h("span", { fg: "gray" }, "  \u258E ");
+
+    if (cursor >= lineStart && cursor <= lineEnd) {
+      var posInLine = cursor - lineStart;
+      var before = line.slice(0, posInLine);
+
+      if (posInLine < line.length) {
+        var cursorChar = line.charAt(posInLine);
+        var after = line.slice(posInLine + 1);
+        renderedLines.push(
+          h("text", { key: i },
+            bar,
+            h("span", null, before),
+            h("span", { fg: "black", bg: "white" }, cursorChar),
+            h("span", null, after)
+          )
+        );
+      } else {
+        renderedLines.push(
+          h("text", { key: i },
+            bar,
+            h("span", null, before),
+            h("span", { fg: "gray" }, "_")
+          )
+        );
+      }
+    } else {
+      renderedLines.push(
+        h("text", { key: i },
+          bar,
+          h("span", null, line)
+        )
+      );
+    }
+
+    charOffset = lineEnd + 1;
+  }
+
+  return h("layout", { direction: "vertical", maxHeight: 5 },
+    renderedLines
+  );
 }
 
 function ChatView({ state }) {
