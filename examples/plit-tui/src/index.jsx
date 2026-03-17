@@ -74,7 +74,9 @@ var keybindings = {
     Tab: "tab_next",
     Enter: "agent_select",
   },
-  insert: {},
+  insert: {
+    Escape: "enter_normal",
+  },
 };
 
 // --- Helpers ----------------------------------------------------------------
@@ -98,6 +100,56 @@ function wrapText(text, width) {
   return result.length > 0 ? result : [""];
 }
 
+function extractModelName(workflow) {
+  if (!workflow || !workflow.nodes || !workflow.edges) return "";
+  var trigger = null;
+  for (var i = 0; i < workflow.nodes.length; i++) {
+    if (workflow.nodes[i].component_type === "trigger_chat") {
+      trigger = workflow.nodes[i];
+      break;
+    }
+  }
+  if (!trigger) return "";
+  // Use node_id or name field for matching
+  var triggerId = trigger.node_id || trigger.name;
+  var agentEdge = null;
+  for (var i = 0; i < workflow.edges.length; i++) {
+    if (workflow.edges[i].source_node_id === triggerId) {
+      agentEdge = workflow.edges[i];
+      break;
+    }
+  }
+  if (!agentEdge) return "";
+  var agentId = agentEdge.target_node_id;
+  var llmEdge = null;
+  for (var i = 0; i < workflow.edges.length; i++) {
+    if (workflow.edges[i].target_node_id === agentId && workflow.edges[i].edge_label === "llm") {
+      llmEdge = workflow.edges[i];
+      break;
+    }
+  }
+  if (!llmEdge) return "";
+  var llmNode = null;
+  for (var i = 0; i < workflow.nodes.length; i++) {
+    var nodeId = workflow.nodes[i].node_id || workflow.nodes[i].name;
+    if (nodeId === llmEdge.source_node_id) {
+      llmNode = workflow.nodes[i];
+      break;
+    }
+  }
+  if (!llmNode || !llmNode.config) {
+    // Fallback: find any ai_model node with model_name in config
+    for (var i = 0; i < workflow.nodes.length; i++) {
+      var node = workflow.nodes[i];
+      if (node.component_type === "ai_model" && node.config && node.config.model_name) {
+        return node.config.model_name;
+      }
+    }
+    return "";
+  }
+  return llmNode.config.model_name || "";
+}
+
 // --- API Helpers ------------------------------------------------------------
 
 function sendMessage(slug, text) {
@@ -108,18 +160,7 @@ function sendMessage(slug, text) {
        "Content-Type": "application/json",
      },
      body: JSON.stringify({ text: text }),
-   }).then(function(res) {
-      if (res.ok) {
-        return res.json();
-      }
-     }).then(function(data) {
-       if (data && data.execution_id && globalThis.__plit_ws__) {
-         globalThis.__plit_ws__.send(JSON.stringify({
-           type: "subscribe",
-           channel: data.execution_id,
-         }));
-       }
-     });
+   });
  }
 
 function fetchHistory(slug) {
@@ -134,6 +175,27 @@ function fetchHistory(slug) {
       Tela.dispatch({ type: "chat_history_loaded", messages: msgs });
     }
   });
+}
+
+function fetchWorkflowDetail(slug) {
+  fetch(PIPELIT_URL + "/api/v1/workflows/" + slug + "/", {
+    headers: { Authorization: "Bearer " + PIPELIT_TOKEN },
+  }).then(function(res) {
+    if (res.ok) {
+      var data = res.json();
+      var model = extractModelName(data);
+      if (model) {
+        Tela.dispatch({ type: "set_model_name", model: model });
+      }
+    }
+  });
+}
+
+function wsSubscribe(channel) {
+  var ws = globalThis.__plit_ws__;
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ type: "subscribe", channel: channel }));
+  }
 }
 
 // --- Reducer ----------------------------------------------------------------
@@ -204,20 +266,21 @@ function reduce(state, action) {
         var wf = state.workflows[state.selectedAgent];
         if (!wf) return state;
         var selSlug = wf.slug || wf.name || "";
-        if (selSlug) fetchHistory(selSlug);
-        if (globalThis.__plit_ws__ && globalThis.__plit_ws__.readyState === 1) {
-          globalThis.__plit_ws__.send(JSON.stringify({ type: "subscribe", channel: "workflow:" + selSlug }));
+        if (selSlug) {
+          fetchHistory(selSlug);
+          fetchWorkflowDetail(selSlug);
+          wsSubscribe("workflow:" + selSlug);
         }
        return Object.assign({}, state, {
-         activeTab: 1,
-         agentName: wf.name || wf.slug || "unnamed",
-         modelName: wf.model || "",
-         messages: [],
-         scrollOffset: 0,
-         stickyBottom: true,
-         activity: [],
-         toolCalls: [],
-       });
+          activeTab: 1,
+          agentName: wf.name || wf.slug || "unnamed",
+          modelName: wf.model || "",
+          messages: [],
+          scrollOffset: 0,
+          stickyBottom: true,
+          activity: [],
+          toolCalls: [],
+        });
 
     // -- Text input --
 
@@ -294,10 +357,19 @@ function reduce(state, action) {
     // -- WebSocket --
 
     case "ws_connected":
-      return Object.assign({}, state, { wsStatus: "connected" });
+      var connState = Object.assign({}, state, { wsStatus: "connected" });
+      // Re-subscribe to current workflow on reconnect
+      if (connState.workflows.length > 0) {
+        var slug = connState.workflows[connState.selectedAgent || 0].slug || "";
+        if (slug) wsSubscribe("workflow:" + slug);
+      }
+      return connState;
 
     case "ws_disconnected":
       return Object.assign({}, state, { wsStatus: "disconnected" });
+
+    case "set_model_name":
+      return Object.assign({}, state, { modelName: action.model });
 
       case "ws_message": {
         var wsData = action.data;
@@ -406,12 +478,19 @@ function reduce(state, action) {
           }
         }
       }
-      return Object.assign({}, state, {
+      var newState = Object.assign({}, state, {
         workflows: wfs,
         selectedAgent: 0,
         agentName: firstName,
         modelName: firstModel,
       });
+      // Fetch full workflow detail to extract model name from graph
+      if (wfs.length > 0 && (wfs[0].slug || wfs[0].name)) {
+        var firstSlug = wfs[0].slug || wfs[0].name;
+        fetchWorkflowDetail(firstSlug);
+        wsSubscribe("workflow:" + firstSlug);
+      }
+      return newState;
     }
 
     case "chat_history_loaded": {
@@ -709,16 +788,8 @@ if (PIPELIT_TOKEN) {
    function connectWs() {
       var ws = new WebSocket(wsUrl);
        ws.onopen = function() {
-         Tela.dispatch({ type: "ws_connected" });
-         // Subscribe to current workflow channel
-         var state = globalThis.__tela_state__;
-         if (state && state.workflows && state.workflows.length > 0) {
-           var slug = state.workflows[state.selectedAgent || 0].slug || state.workflows[state.selectedAgent || 0].name || "";
-           if (slug) {
-             ws.send(JSON.stringify({ type: "subscribe", channel: "workflow:" + slug }));
-           }
-         }
-       };
+          Tela.dispatch({ type: "ws_connected" });
+        };
     ws.onclose = function() {
       Tela.dispatch({ type: "ws_disconnected" });
       setTimeout(connectWs, 3000);
