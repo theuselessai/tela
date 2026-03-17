@@ -110,13 +110,14 @@ function sendMessage(slug, text) {
     body: JSON.stringify({ text: text }),
   }).then(function(res) {
     if (res.ok) {
-      var data = res.json();
-      if (data.execution_id && globalThis.__plit_ws__) {
-        globalThis.__plit_ws__.send(JSON.stringify({
-          type: "subscribe",
-          channel: data.execution_id,
-        }));
-      }
+      return res.json();
+    }
+  }).then(function(data) {
+    if (data && data.execution_id && globalThis.__plit_ws__) {
+      globalThis.__plit_ws__.send(JSON.stringify({
+        type: "subscribe",
+        channel: data.execution_id,
+      }));
     }
   });
 }
@@ -171,7 +172,8 @@ function reduce(state, action) {
         var nextIdx = Math.min(state.selectedAgent + 1, Math.max(0, state.workflows.length - 1));
         return Object.assign({}, state, { selectedAgent: nextIdx });
       }
-      var ndOffset = Math.max(0, state.scrollOffset - 3);
+      var maxOffset = Math.max(0, state.messages.length * 5);
+      var ndOffset = Math.max(0, Math.min(state.scrollOffset, maxOffset) - 3);
       return Object.assign({}, state, {
         scrollOffset: ndOffset,
         stickyBottom: ndOffset === 0,
@@ -300,29 +302,42 @@ function reduce(state, action) {
 
       switch (wsData.type) {
         case "chat_message": {
-          var content = wsData.content || wsData.text || "";
-          var role = wsData.role || "assistant";
+          var msgData = wsData.data || {};
+          var content = msgData.text || msgData.content || "";
+          var role = msgData.role || "assistant";
           var newMsgs = state.messages.concat([{ role: role, content: content }]);
           var newUnread = state.stickyBottom ? 0 : state.unreadCount + 1;
           return Object.assign({}, state, { messages: newMsgs, unreadCount: newUnread });
         }
 
         case "node_status": {
-          var nodeName = wsData.node_name || wsData.node_id || "";
+          var nsData = wsData.data || {};
+          var nodeName = nsData.node_id || nsData.node_name || "";
+          
+          // Check if this is a tool call
+          if (nsData.is_tool_call) {
+            var newToolCalls = state.toolCalls.concat([{
+              toolName: nsData.tool_name || "",
+              nodeId: nsData.node_id || "",
+              status: nsData.status || "",
+            }]);
+            return Object.assign({}, state, { toolCalls: newToolCalls, nodesRunning: true });
+          }
+          
           var updatedActivity = state.activity.slice();
           var found = false;
           for (var ni = 0; ni < updatedActivity.length; ni++) {
             if (updatedActivity[ni].nodeName === nodeName) {
-              updatedActivity[ni] = { nodeName: nodeName, status: wsData.status };
+              updatedActivity[ni] = { nodeName: nodeName, status: nsData.status };
               found = true;
               break;
             }
           }
           if (!found) {
-            updatedActivity.push({ nodeName: nodeName, status: wsData.status });
+            updatedActivity.push({ nodeName: nodeName, status: nsData.status });
           }
           var updatedModel = state.modelName;
-          if (wsData.model) updatedModel = wsData.model;
+          if (nsData.model_name) updatedModel = nsData.model_name;
           return Object.assign({}, state, {
             activity: updatedActivity,
             nodesRunning: true,
@@ -331,10 +346,11 @@ function reduce(state, action) {
         }
 
         case "tool_call": {
+          var tcData = wsData.data || {};
           var newToolCalls = state.toolCalls.concat([{
-            toolName: wsData.tool_name || "",
-            nodeId: wsData.node_id || "",
-            status: wsData.status || "",
+            toolName: tcData.tool_name || "",
+            nodeId: tcData.node_id || "",
+            status: tcData.status || "",
           }]);
           return Object.assign({}, state, { toolCalls: newToolCalls });
         }
@@ -461,13 +477,13 @@ function MessageList({ state }) {
       var rawLines = msg.content.split("\n");
       for (var j = 0; j < rawLines.length; j++) {
         if (rawLines[j].length === 0) {
-          items.push({ type: "content", text: "  \u2503 " });
+          items.push({ type: "content", role: "user", text: "  \u2503 " });
         } else if (rawLines[j].length <= contentWidth) {
-          items.push({ type: "content", text: "  \u2503 " + rawLines[j] });
+          items.push({ type: "content", role: "user", text: "  \u2503 " + rawLines[j] });
         } else {
           var wrapped = wrapText(rawLines[j], contentWidth);
           for (var k = 0; k < wrapped.length; k++) {
-            items.push({ type: "content", text: "  \u2503 " + wrapped[k] });
+            items.push({ type: "content", role: "user", text: "  \u2503 " + wrapped[k] });
           }
         }
       }
@@ -477,13 +493,13 @@ function MessageList({ state }) {
       var rawLines = msg.content.split("\n");
       for (var j = 0; j < rawLines.length; j++) {
         if (rawLines[j].length === 0) {
-          items.push({ type: "content", text: "" });
+          items.push({ type: "content", role: "assistant", text: "" });
         } else if (rawLines[j].length <= contentWidth) {
-          items.push({ type: "content", text: "  " + rawLines[j] });
+          items.push({ type: "content", role: "assistant", text: "  " + rawLines[j] });
         } else {
           var wrapped = wrapText(rawLines[j], contentWidth);
           for (var k = 0; k < wrapped.length; k++) {
-            items.push({ type: "content", text: "  " + wrapped[k] });
+            items.push({ type: "content", role: "assistant", text: "  " + wrapped[k] });
           }
         }
       }
@@ -491,11 +507,12 @@ function MessageList({ state }) {
     items.push({ type: "blank", text: "" });
   }
 
+  var effectiveOffset = Math.min(state.scrollOffset, Math.max(0, items.length - 1));
   var selectedIdx;
   if (state.stickyBottom) {
     selectedIdx = Math.max(0, items.length - 1);
   } else {
-    selectedIdx = Math.max(0, items.length - 1 - state.scrollOffset);
+    selectedIdx = Math.max(0, items.length - 1 - effectiveOffset);
   }
 
   return (
@@ -518,6 +535,14 @@ function MessageList({ state }) {
           }
           if (item.type === "blank") {
             return <text key={idx}> </text>;
+          }
+          if (item.type === "content" && item.role === "user") {
+            return (
+              <text key={idx}>
+                <span fg="cyan">{"  \u2503 "}</span>
+                <span>{item.text.slice(5)}</span>
+              </text>
+            );
           }
           return <text key={idx}>{item.text}</text>;
         })}
