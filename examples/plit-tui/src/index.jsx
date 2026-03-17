@@ -638,6 +638,9 @@ function InputBox({ state }) {
   if (state.input.length === 0 && state.mode !== "insert") {
     return <text height={1} fg="gray">{prefix + "Type a message..."}</text>;
   }
+  if (state.input.indexOf("\n") >= 0) {
+    return <textarea maxHeight={5} value={state.input} cursor={state.cursor} fg="white" />;
+  }
   return <input height={1} value={prefix + state.input} cursor={prefix.length + state.cursor} fg="white" placeholder={prefix + "Type a message..."} />;
 }
 
@@ -648,23 +651,6 @@ function ChatView({ state }) {
         <layout direction="vertical" width={28}>
           <text>{"  \u25C9 " + (state.agentName || "No agent")}</text>
           {state.modelName ? <text fg="gray">{"    " + state.modelName}</text> : null}
-          <text height={1} />
-          {state.activity.length > 0 ? (
-            <layout direction="vertical">
-              {state.activity.map(function(a, ai) {
-                var color = a.status === "completed" ? "green"
-                  : a.status === "running" ? "yellow" : "gray";
-                return <text key={ai} fg={color}>{"    " + a.nodeName + ": " + a.status}</text>;
-              })}
-            </layout>
-          ) : null}
-          {state.toolCalls.length > 0 ? (
-            <layout direction="vertical">
-              {state.toolCalls.slice(-5).map(function(tc, ti) {
-                return <text key={ti} fg="gray">{"    " + tc.toolName}</text>;
-              })}
-            </layout>
-          ) : null}
         </layout>
         <layout direction="vertical" flex={1}>
           <MessageList state={state} />
@@ -684,12 +670,21 @@ function ChatView({ state }) {
 function ToolBar({ state }) {
   if (state.nodesRunning) {
     var frame = SPINNER_FRAMES[state.spinnerFrame];
-    var statusText = frame + " running";
-    if (state.activity.length > 0) {
-      var latest = state.activity[state.activity.length - 1];
-      statusText = frame + " " + latest.nodeName;
+    var parts = [" " + frame + " " + (state.agentName || "agent")];
+    
+    if (state.toolCalls.length > 0) {
+      var toolParts = state.toolCalls.map(function(tc) {
+        var icon = tc.status === "success" ? "\u2713" : tc.status === "running" ? "\u27F3" : "\u25CB";
+        return tc.toolName + " " + icon;
+      });
+      parts.push(toolParts.join(" \u2192 "));
     }
-    return <text height={1} fg="yellow">{" " + statusText}</text>;
+    
+    if (state.messageQueue.length > 0) {
+      parts.push(state.messageQueue.length + " queued");
+    }
+    
+    return <text height={1} fg="yellow">{parts.join("  ")}</text>;
   }
   return <text height={1} align="right" fg="green">{"\u25CF ready "}</text>;
 }
