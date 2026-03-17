@@ -527,10 +527,11 @@ function MessageList({ state }) {
 }
 
 function InputBox({ state }) {
+  var prefix = "  \u258E ";
   if (state.input.length === 0 && state.mode !== "insert") {
-    return <text height={1} fg="gray">{"  \u258E Type a message..."}</text>;
+    return <text height={1} fg="gray">{prefix + "Type a message..."}</text>;
   }
-  return <textarea maxHeight={5} value={state.input} cursor={state.cursor} fg="white" placeholder={"  \u258E Type a message..."} />;
+  return <input height={1} value={prefix + state.input} cursor={prefix.length + state.cursor} fg="white" placeholder={prefix + "Type a message..."} />;
 }
 
 function ChatView({ state }) {
@@ -617,11 +618,13 @@ function StatusBar({ state }) {
   }
 
   return (
-    <text height={1}>
-      <span>{"  " + modeIcon + " " + modeText}</span>
-      <span fg={connFg}>{"  " + connIcon + " " + hostDisplay}</span>
-      <span align="right">{" " + scrollPct + " "}</span>
-    </text>
+    <layout direction="horizontal" height={1}>
+      <text>
+        <span>{"  " + modeIcon + " " + modeText}</span>
+        <span fg={connFg}>{"  " + connIcon + " " + hostDisplay}</span>
+      </text>
+      <text align="right" flex={1}>{" " + scrollPct + " "}</text>
+    </layout>
   );
 }
 
