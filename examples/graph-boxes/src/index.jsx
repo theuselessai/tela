@@ -34,9 +34,9 @@ var EDGES = [
   { source: "trigger",     target: "deep_agent",  edgeType: "direct" },
   { source: "deep_agent",  target: "categorizer", edgeType: "direct" },
   { source: "categorizer", target: "switch",      edgeType: "direct" },
-  { source: "switch",      target: "code",        edgeType: "conditional", condition: "A" },
-  { source: "switch",      target: "loop",        edgeType: "conditional", condition: "B" },
-  { source: "switch",      target: "filter",      edgeType: "conditional", condition: "C" },
+  { source: "switch",      target: "code",        edgeType: "conditional", condition: "action" },
+  { source: "switch",      target: "loop",        edgeType: "conditional", condition: "retry" },
+  { source: "switch",      target: "filter",      edgeType: "conditional", condition: "batch" },
   { source: "code",        target: "human",       edgeType: "direct" },
   { source: "human",       target: "merge",       edgeType: "direct" },
   { source: "loop",        target: "agent_2",     edgeType: "direct", label: "loop_body" },
@@ -77,6 +77,17 @@ var TYPE_COLORS = {
 
 function nodeColor(type) { return TYPE_COLORS[type] || "white"; }
 
+var TYPE_ICONS = {
+  trigger: "\u25B6",
+  switch: "\u25C6",
+  code: "\u25A0",
+  human_confirmation: "\u25C9",
+  loop: "\u21BB",
+  filter: "\u25BC",
+  workflow: "\u25A1",
+  merge: "\u25CB",
+};
+
 function getSubTree(nodeId, nodes, edges) {
   var groups = {};
   for (var i = 0; i < edges.length; i++) {
@@ -112,7 +123,7 @@ function layoutGraph(nodes, edges, areaW, areaH) {
 
   function placeSpine(id, extraH) {
     var tree = getSubTree(id, nodes, edges);
-    var h = Math.max(nodeH, (extraH || 0) + (tree.lineCount > 0 ? tree.lineCount + 4 : nodeH));
+    var h = Math.max(nodeH, (extraH || 0) + (tree.lineCount > 0 ? tree.lineCount + 2 : nodeH));
     positions[id] = { x: spineX, y: y, w: nodeW, h: h, cat: "executable", subTree: tree.lineCount > 0 ? tree : null };
     y += h + vGap;
   }
@@ -126,8 +137,7 @@ function layoutGraph(nodes, edges, areaW, areaH) {
   positions["switch"] = { x: spineX, y: y, w: nodeW, h: nodeH, cat: "executable" };
   y += nodeH + vGap;
 
-  // 3 branches: A (left), B (center), C (right)
-  var branchY = y;
+  var branchY = y + 1;
 
   // Branch A: code → human_confirm
   positions["code"] = { x: branchLeftX, y: branchY, w: nodeW, h: nodeH, cat: "branch" };
@@ -135,7 +145,7 @@ function layoutGraph(nodes, edges, areaW, areaH) {
 
   // Branch B: loop → agent_2 (loop)
   var a2Tree = getSubTree("agent_2", nodes, edges);
-  var a2H = Math.max(nodeH, a2Tree.lineCount > 0 ? a2Tree.lineCount + 4 : nodeH);
+  var a2H = Math.max(nodeH, a2Tree.lineCount > 0 ? a2Tree.lineCount + 2 : nodeH);
   positions["loop"] = { x: branchCenterX, y: branchY, w: nodeW, h: nodeH, cat: "branch" };
   positions["agent_2"] = { x: branchCenterX, y: branchY + nodeH + vGap, w: nodeW, h: a2H, cat: "branch", subTree: a2Tree.lineCount > 0 ? a2Tree : null };
 
@@ -160,8 +170,9 @@ function layoutGraph(nodes, edges, areaW, areaH) {
   return positions;
 }
 
-function drawVLine(els, x, y1, y2, color, prefix) {
+function drawVLine(els, x, y1, y2, color, prefix, clipH) {
   for (var y = y1; y <= y2; y++) {
+    if (clipH !== undefined && (y < 0 || y >= clipH)) continue;
     els.push(<text key={prefix + y} x={x} y={y} width={1} height={1} fg={color}>{"\u2502"}</text>);
   }
 }
@@ -204,10 +215,15 @@ function view(state) {
   var py = state.panY;
   var p = function(id) { return pos[id]; };
 
+  var sqW = 5;
+  function isSimple(id) { return !pos[id].subTree; }
   function center(id) { return p(id).x + Math.floor(p(id).w / 2) - px; }
   function bot(id) { return p(id).y + p(id).h - py; }
   function top_(id) { return p(id).y - py; }
-  function right_(id) { return p(id).x + p(id).w - px; }
+  function right_(id) {
+    if (isSimple(id)) return p(id).x + Math.floor((p(id).w - sqW) / 2) + sqW - px;
+    return p(id).x + p(id).w - px;
+  }
   function midY(id) { return p(id).y + Math.floor(p(id).h / 2) - py; }
 
   var spineC = center("trigger");
@@ -235,20 +251,28 @@ function view(state) {
     edgeEls.push(<text key={"fh_" + x} x={x} y={forkBarY} width={1} height={1} fg="white">{ch}</text>);
   }
 
-  edgeEls.push(<text key="la" x={leftC + 1} y={forkBarY} width={1} height={1} fg="white">{"A"}</text>);
-  edgeEls.push(<text key="lb" x={centerC + 1} y={forkBarY} width={1} height={1} fg="white">{"B"}</text>);
-  edgeEls.push(<text key="lc" x={rightC - 2} y={forkBarY} width={1} height={1} fg="white">{"C"}</text>);
+  var labelY = forkBarY + 1;
+  var condEdges = EDGES.filter(function(e) { return e.edgeType === "conditional" && e.source === "switch"; });
+  var branchCenters = { code: leftC, loop: centerC, filter: rightC };
+  for (var ci = 0; ci < condEdges.length; ci++) {
+    var ce = condEdges[ci];
+    var bx = branchCenters[ce.target];
+    if (bx !== undefined) {
+      var lx = bx - Math.floor(ce.condition.length / 2);
+      edgeEls.push(<text key={"cl_" + ci} x={lx} y={labelY} width={ce.condition.length} height={1} fg="white">{ce.condition}</text>);
+    }
+  }
 
-  drawVLine(edgeEls, leftC, forkBarY + 1, top_("code") - 1, "white", "fl_");
-  drawVLine(edgeEls, centerC, forkBarY + 1, top_("loop") - 1, "white", "fc_");
-  drawVLine(edgeEls, rightC, forkBarY + 1, top_("filter") - 1, "white", "fr_");
+  drawVLine(edgeEls, leftC, labelY + 1, top_("code") - 1, "white", "fl_");
+  drawVLine(edgeEls, centerC, labelY + 1, top_("loop") - 1, "white", "fc_");
+  drawVLine(edgeEls, rightC, labelY + 1, top_("filter") - 1, "white", "fr_");
 
   // Branch A: code → human
   drawVLine(edgeEls, leftC, bot("code"), top_("human") - 1, "darkgray", "e_ch_");
 
   // Branch B: loop → agent_2 + loop_return
   drawVLine(edgeEls, centerC, bot("loop"), top_("agent_2") - 1, "darkgray", "e_la_");
-  var backX = right_("loop") + 3;
+  var backX = Math.max(right_("loop"), right_("agent_2")) + 3;
   // top: ◀──╮
   for (var x = right_("loop"); x <= backX; x++) {
     var ch = (x === right_("loop")) ? "\u25C2" : (x === backX) ? "\u256E" : "\u2500";
@@ -270,7 +294,7 @@ function view(state) {
   var a2Bot = bot("agent_2");
   var swBot = bot("subworkflow");
   drawVLine(edgeEls, leftC, humanBot, mergeBarY - 1, "darkgray", "e_hm_");
-  drawVLine(edgeEls, centerC, a2Bot + 1, mergeBarY - 1, "darkgray", "e_lm_");
+  drawVLine(edgeEls, centerC, a2Bot, mergeBarY - 1, "darkgray", "e_lm_");
   drawVLine(edgeEls, rightC, swBot, mergeBarY - 1, "darkgray", "e_sm_");
 
   for (var x = leftC; x <= rightC; x++) {
@@ -302,8 +326,6 @@ function view(state) {
     if (np.subTree) {
       var tree = np.subTree;
       var lines = [];
-      lines.push({ text: n.type, color: nodeColor(n.type), dim: !isSelected });
-      lines.push({ text: "", color: "gray" });
       for (var g = 0; g < tree.keys.length; g++) {
         var groupNodes = tree.groups[tree.keys[g]];
         lines.push({ text: " \u25CF " + tree.keys[g], color: "gray" });
@@ -325,12 +347,19 @@ function view(state) {
         </box>
       );
     } else {
+      var icon = TYPE_ICONS[n.type] || "\u25A0";
+      var sqW = 5;
+      var sqX = npx + Math.floor((np.w - sqW) / 2);
+      var labelX = npx + Math.floor((np.w - n.label.length) / 2);
       nodeEls.push(
-        <box key={"n" + i} x={npx} y={npy} width={np.w} height={np.h}
-          border={border} borderStyle={bStyle}
-          title={" " + n.label + " "} titleAlignment="left">
-          <text fg={nodeColor(n.type)} dim={!isSelected}>{n.type}</text>
+        <box key={"n" + i} x={sqX} y={npy} width={sqW} height={np.h}
+          border={border} borderStyle={bStyle}>
+          <text fg={nodeColor(n.type)} dim={!isSelected}>{" " + icon}</text>
         </box>
+      );
+      nodeEls.push(
+        <text key={"nl" + i} x={labelX} y={npy + np.h} width={n.label.length} height={1}
+          fg={isSelected ? "white" : "gray"} dim={!isSelected}>{n.label}</text>
       );
     }
   }
