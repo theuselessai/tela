@@ -155,7 +155,7 @@ issued localhost/SAN certificate for its owned TLS integration fixture.
 From `tela/`:
 
 ```sh
-SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk \
+SDKROOT="$(xcrun --show-sdk-path)" \
   cargo test --offline --locked -p tela-engine websocket
 ```
 

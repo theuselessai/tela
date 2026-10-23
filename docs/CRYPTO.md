@@ -225,7 +225,7 @@ signatures/tags/AAD, native type/disposal/GC bounds, wrong contexts, and Argon2
 admission/cancellation/teardown. Run from `tela/`:
 
 ```sh
-SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk \
+SDKROOT="$(xcrun --show-sdk-path)" \
   cargo test --offline --locked -p tela-engine native::crypto
 ```
 

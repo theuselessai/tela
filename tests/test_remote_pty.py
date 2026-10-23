@@ -6,7 +6,7 @@ import fcntl, json, os, pathlib, pty, select, signal, struct, subprocess, termio
 root=pathlib.Path(__file__).resolve().parents[1]
 env=os.environ.copy()
 if os.uname().sysname=='Darwin':
-    env.setdefault('SDKROOT','/Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk')
+    env.setdefault('SDKROOT',subprocess.run(['xcrun','--show-sdk-path'],text=True,stdout=subprocess.PIPE,check=True).stdout.strip())
 build=subprocess.run(['cargo','test','--offline','--locked','-p','tela-cli','--no-run','--message-format=json'],cwd=root,env=env,text=True,stdout=subprocess.PIPE,check=True)
 bins=[r['executable'] for line in build.stdout.splitlines() if (r:=json.loads(line)).get('reason')=='compiler-artifact' and r.get('executable') and r.get('target',{}).get('name')=='tela' and r.get('profile',{}).get('test')]
 assert len(bins)==1
