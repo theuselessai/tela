@@ -13,9 +13,23 @@ categories = ["command-line-interface"]
 name = "tela"
 path = "src/main.rs"
 
+[features]
+default = ["rustls-tls"]
+rustls-tls = ["tela-engine/rustls-tls", "reqwest/rustls-tls"]
+native-tls-vendored = ["tela-engine/native-tls-vendored", "reqwest/native-tls-vendored"]
+
 [dependencies]
-tela-engine = { path = "../tela-engine", version = "0.1.0" }
+tela-engine = { path = "../tela-engine", version = "0.1.0", default-features = false }
 clap = { version = "4", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 anyhow = "1"
 serde_json = "1"
+serde = { version = "1", features = ["derive"] }
+reqwest = { version = "0.12", default-features = false }
+sha2 = "0.10"
+dirs-next = "2"
+rustix = { version = "1", features = ["fs", "process"] }
+
+[dev-dependencies]
+rcgen = "0.13"
+rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }

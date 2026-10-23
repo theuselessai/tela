@@ -9,6 +9,15 @@ homepage = "https://github.com/theuselessai/tela"
 keywords = ["tui", "terminal", "jsx", "ratatui", "quickjs"]
 categories = ["command-line-interface", "gui"]
 
+[features]
+default = ["rustls-tls"]
+rustls-tls = ["reqwest/rustls-tls", "tokio-tungstenite/rustls-tls-webpki-roots"]
+native-tls-vendored = ["reqwest/native-tls-vendored", "tokio-tungstenite/native-tls"]
+# Generate target-correct QuickJS FFI for targets without bundled bindings (e.g. i686-musl).
+generate-bindings = ["rquickjs/bindgen"]
+# Some syscall emulators lack Linux TCGETS2; use crossterm's standard libc termios path.
+portable-termios = ["crossterm/libc"]
+
 [dependencies]
 rquickjs = { version = "0.9", features = ["futures", "loader", "macro"] }
 ratatui = { version = "0.29", features = ["crossterm"] }
@@ -16,8 +25,28 @@ crossterm = { version = "0.28", features = ["event-stream"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+tokio-tungstenite = "0.26"
 futures-util = "0.3"
 dirs-next = "2"
 anyhow = "1"
+base64 = "0.22"
+vt100 = "0.15.2"
+# Generic native crypto providers; protocol orchestration remains application JS.
+argon2 = "0.5"
+chacha20poly1305 = "0.10"
+ed25519-dalek = "2"
+hkdf = "0.12"
+hmac = "0.12"
+p256 = { version = "0.13", features = ["arithmetic"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+sha2 = "0.10"
+subtle = "2"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+zeroize = "1"
+rustix = { version = "1", features = ["fs", "process"] }
+
+[dev-dependencies]
+rcgen = "0.13"
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }

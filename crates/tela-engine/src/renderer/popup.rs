@@ -2,14 +2,30 @@ use ratatui::layout::Rect;
 use ratatui::widgets::Clear;
 use ratatui::Frame;
 
-use super::render_element;
-use crate::elements::Element;
+use super::{render_element, render_element_with_terminals};
+use crate::{elements::Element, native::TerminalHandles};
 
 /// Render children as a floating popup overlay.
 /// Clears the area first, then renders children on top.
 /// Props: x, y, width, height (all in terminal cells, relative to frame origin).
 /// If `anchor="bottom"` is set, y is measured from the bottom of the frame.
-pub fn render(frame: &mut Frame, _area: Rect, element: &Element) {
+pub fn render(frame: &mut Frame, area: Rect, element: &Element) {
+    render_inner(frame, area, element, None);
+}
+pub fn render_with_terminals(
+    frame: &mut Frame,
+    area: Rect,
+    element: &Element,
+    terminals: &TerminalHandles,
+) {
+    render_inner(frame, area, element, Some(terminals));
+}
+fn render_inner(
+    frame: &mut Frame,
+    _area: Rect,
+    element: &Element,
+    terminals: Option<&TerminalHandles>,
+) {
     let frame_area = frame.area();
 
     let width = element
@@ -47,6 +63,10 @@ pub fn render(frame: &mut Frame, _area: Rect, element: &Element) {
 
     frame.render_widget(Clear, popup_area);
     for child in &element.children {
-        render_element(frame, popup_area, child);
+        if let Some(terminals) = terminals {
+            render_element_with_terminals(frame, popup_area, child, terminals);
+        } else {
+            render_element(frame, popup_area, child);
+        }
     }
 }

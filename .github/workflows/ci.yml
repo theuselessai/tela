@@ -8,7 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  TELA_BIN: ./target/debug/tela-cli
+  TELA_BIN: ./target/debug/tela
 
 jobs:
   build:
@@ -28,14 +28,20 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Unit tests
+        run: cargo test --workspace --locked
+
+      - name: URL approval and rendering fixture
+        run: python3 tests/test_remote_pty.py
+
       - name: Build
-        run: cargo build
+        run: cargo build --locked
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
           name: tela-cli
-          path: target/debug/tela-cli
+          path: target/debug/tela
 
   tui-tests:
     needs: build
@@ -50,7 +56,7 @@ jobs:
           path: target/debug
 
       - name: Make binary executable
-        run: chmod +x target/debug/tela-cli
+        run: chmod +x target/debug/tela
 
       - name: Install tmux
         run: sudo apt-get update && sudo apt-get install -y tmux

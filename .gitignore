@@ -10,3 +10,6 @@ bundle.js
 
 # OS
 .DS_Store
+
+# Local iSH build runs and packages
+/dist/

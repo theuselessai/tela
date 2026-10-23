@@ -4,10 +4,28 @@ use ratatui::widgets::block::Position;
 use ratatui::widgets::{Block, Borders, Padding};
 use ratatui::Frame;
 
-use super::{parse_border_type, parse_color, render_element};
-use crate::elements::Element;
+use super::{parse_border_type, parse_color, render_element, render_element_with_terminals};
+use crate::{elements::Element, native::TerminalHandles};
 
 pub fn render(frame: &mut Frame, area: Rect, element: &Element) {
+    render_inner(frame, area, element, None);
+}
+
+pub fn render_with_terminals(
+    frame: &mut Frame,
+    area: Rect,
+    element: &Element,
+    terminals: &TerminalHandles,
+) {
+    render_inner(frame, area, element, Some(terminals));
+}
+
+fn render_inner(
+    frame: &mut Frame,
+    area: Rect,
+    element: &Element,
+    terminals: Option<&TerminalHandles>,
+) {
     let border_prop = element
         .props
         .get("border")
@@ -58,6 +76,10 @@ pub fn render(frame: &mut Frame, area: Rect, element: &Element) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
     for child in &element.children {
-        render_element(frame, inner, child);
+        if let Some(terminals) = terminals {
+            render_element_with_terminals(frame, inner, child, terminals);
+        } else {
+            render_element(frame, inner, child);
+        }
     }
 }

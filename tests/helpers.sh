@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TELA_BIN="${TELA_BIN:-$SCRIPT_DIR/target/debug/tela-cli}"
+TELA_BIN="${TELA_BIN:-$SCRIPT_DIR/target/debug/tela}"
 TEST_COLS="${TEST_COLS:-80}"
 TEST_ROWS="${TEST_ROWS:-24}"
 STARTUP_WAIT="${STARTUP_WAIT:-2}"

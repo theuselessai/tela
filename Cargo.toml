@@ -1,3 +1,8 @@
 [workspace]
 members = ["crates/tela-engine", "crates/tela-cli"]
+exclude = ["vendor/event-listener"]
 resolver = "2"
+
+# Pinned, attributed iSH compatibility patch: same full fence, supported LOCK OR.
+[patch.crates-io]
+event-listener = { path = "vendor/event-listener" }
