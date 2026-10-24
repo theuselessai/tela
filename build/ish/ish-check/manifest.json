@@ -1,0 +1,6 @@
+{
+  "name": "tela-ish-artifact-check",
+  "version": "0.1.0",
+  "entry": "bundle.js",
+  "permissions": ["crypto"]
+}
