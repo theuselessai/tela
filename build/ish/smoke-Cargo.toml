@@ -1,0 +1,17 @@
+# Isolated verifier: SDK/CLI dev dependencies are deliberately excluded.
+[package]
+name = "ish-smoke"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+tela-engine = { path = "/work/crates/tela-engine", default-features = false, features = ["native-tls-vendored", "generate-bindings", "portable-termios"] }
+tokio = { version = "=1.53.2", features = ["full"] }
+async-lock = "=3.4.2"
+native-tls = { version = "=0.2.18", features = ["vendored"] }
+
+[patch.crates-io]
+event-listener = { path = "/work/vendor/event-listener" }

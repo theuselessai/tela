@@ -7,6 +7,11 @@ package-lock.json
 
 # Build output
 bundle.js
+# The iSH check app has no build step; its bundle is the source.
+!/build/ish/ish-check/bundle.js
 
 # OS
 .DS_Store
+
+# Local iSH build runs and packages
+/dist/
