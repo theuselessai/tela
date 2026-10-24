@@ -3,13 +3,19 @@ use clap::Parser;
 use std::fs;
 use tela_engine::Engine;
 
+mod remote;
+
 #[derive(Parser)]
 #[command(name = "tela", about = "React Native for terminals")]
 enum Cli {
     /// Run a Tela app
     Run {
-        /// Path to the app directory
-        path: std::path::PathBuf,
+        /// Path to a local app directory (exclusive with --url)
+        #[arg(required_unless_present = "url", conflicts_with = "url")]
+        path: Option<std::path::PathBuf>,
+        /// HTTPS URL of a remote app manifest (requires code/permission approval)
+        #[arg(long, required_unless_present = "path", conflicts_with = "path")]
+        url: Option<String>,
     },
     /// Start dev mode with hot reload
     Dev {
@@ -27,7 +33,14 @@ enum Cli {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli {
-        Cli::Run { path } => {
+        Cli::Run { url: Some(url), .. } => {
+            let app = remote::load(&url).await?;
+            let engine = Engine::new_with_manifest(&app.namespace, &app.permissions).await?;
+            engine.load_bundle(&app.bundle).await?;
+            engine.run().await?;
+        }
+        Cli::Run { path, url: None } => {
+            let path = path.context("a local path or --url is required")?;
             let manifest_str = std::fs::read_to_string(path.join("manifest.json"))
                 .context("failed to read manifest.json")?;
             let manifest = tela_engine::parse_manifest(&manifest_str)?;
@@ -44,7 +57,7 @@ async fn main() -> anyhow::Result<()> {
                 .context("failed to read manifest.json")?;
             let manifest = tela_engine::parse_manifest(&manifest_str)?;
             let bundle_path = path.join(&manifest.entry);
-            
+
             // Auto-build if bundle doesn't exist
             if !bundle_path.exists() {
                 println!("Bundle not found, building...");
@@ -54,12 +67,12 @@ async fn main() -> anyhow::Result<()> {
                     .current_dir(&path)
                     .status()
                     .context("failed to run npm build")?;
-                
+
                 if !status.success() {
                     anyhow::bail!("npm build failed");
                 }
             }
-            
+
             let bundle = std::fs::read_to_string(&bundle_path)
                 .with_context(|| format!("failed to read {}", bundle_path.display()))?;
 
@@ -70,11 +83,10 @@ async fn main() -> anyhow::Result<()> {
         }
         Cli::Init { name } => {
             let path = std::path::PathBuf::from(&name);
-            
+
             // Create directories
-            fs::create_dir_all(path.join("src"))
-                .context("failed to create src directory")?;
-            
+            fs::create_dir_all(path.join("src")).context("failed to create src directory")?;
+
             // Write manifest.json
             let manifest = serde_json::json!({
                 "name": name,
@@ -83,9 +95,10 @@ async fn main() -> anyhow::Result<()> {
             });
             fs::write(
                 path.join("manifest.json"),
-                serde_json::to_string_pretty(&manifest)?
-            ).context("failed to write manifest.json")?;
-            
+                serde_json::to_string_pretty(&manifest)?,
+            )
+            .context("failed to write manifest.json")?;
+
             // Write package.json
             let package = serde_json::json!({
                 "name": name,
@@ -99,9 +112,10 @@ async fn main() -> anyhow::Result<()> {
             });
             fs::write(
                 path.join("package.json"),
-                serde_json::to_string_pretty(&package)?
-            ).context("failed to write package.json")?;
-            
+                serde_json::to_string_pretty(&package)?,
+            )
+            .context("failed to write package.json")?;
+
             // Write src/index.jsx with minimal counter app
             let index_jsx = r#"var initialState = { count: 0 };
 
@@ -141,7 +155,7 @@ function view(state, dispatch) {
 "#;
             fs::write(path.join("src/index.jsx"), index_jsx)
                 .context("failed to write src/index.jsx")?;
-            
+
             println!("Created {}/ with the following structure:", name);
             println!("  {}/", name);
             println!("  ├── manifest.json");

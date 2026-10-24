@@ -54,59 +54,58 @@ pub fn register_fetch(
     let tx = action_tx.clone();
     let rt_handle = handle.clone();
 
-    let native_fetch = move |id: u64, url: String, method: String, body: String, headers_json: String| {
-        let tx = tx.clone();
-        rt_handle.spawn(async move {
-            let client = reqwest::Client::new();
-            let mut req = match method.to_uppercase().as_str() {
-                "POST" => client.post(&url),
-                "PUT" => client.put(&url),
-                "DELETE" => client.delete(&url),
-                "PATCH" => client.patch(&url),
-                _ => client.get(&url),
-            };
+    let native_fetch =
+        move |id: u64, url: String, method: String, body: String, headers_json: String| {
+            let tx = tx.clone();
+            rt_handle.spawn(async move {
+                let client = reqwest::Client::new();
+                let mut req = match method.to_uppercase().as_str() {
+                    "POST" => client.post(&url),
+                    "PUT" => client.put(&url),
+                    "DELETE" => client.delete(&url),
+                    "PATCH" => client.patch(&url),
+                    _ => client.get(&url),
+                };
 
-            if let Ok(headers) =
-                serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&headers_json)
-            {
-                for (key, val) in headers {
-                    if let Some(v) = val.as_str() {
-                        req = req.header(key.as_str(), v);
+                if let Ok(headers) = serde_json::from_str::<
+                    serde_json::Map<String, serde_json::Value>,
+                >(&headers_json)
+                {
+                    for (key, val) in headers {
+                        if let Some(v) = val.as_str() {
+                            req = req.header(key.as_str(), v);
+                        }
                     }
                 }
-            }
 
-            if !body.is_empty() {
-                req = req.body(body);
-            }
-
-            let result_json = match req.send().await {
-                Ok(resp) => {
-                    let status = resp.status().as_u16();
-                    let status_text = resp
-                        .status()
-                        .canonical_reason()
-                        .unwrap_or("")
-                        .to_string();
-                    let body = resp.text().await.unwrap_or_default();
-                    serde_json::json!({
-                        "status": status,
-                        "statusText": status_text,
-                        "body": body,
-                    })
+                if !body.is_empty() {
+                    req = req.body(body);
                 }
-                Err(e) => {
-                    serde_json::json!({ "error": e.to_string() })
-                }
-            };
 
-            let _ = tx.send(serde_json::json!({
-                "type": "__tela_fetch__",
-                "id": id,
-                "result": result_json.to_string(),
-            }));
-        });
-    };
+                let result_json = match req.send().await {
+                    Ok(resp) => {
+                        let status = resp.status().as_u16();
+                        let status_text =
+                            resp.status().canonical_reason().unwrap_or("").to_string();
+                        let body = resp.text().await.unwrap_or_default();
+                        serde_json::json!({
+                            "status": status,
+                            "statusText": status_text,
+                            "body": body,
+                        })
+                    }
+                    Err(e) => {
+                        serde_json::json!({ "error": e.to_string() })
+                    }
+                };
+
+                let _ = tx.send(serde_json::json!({
+                    "type": "__tela_fetch__",
+                    "id": id,
+                    "result": result_json.to_string(),
+                }));
+            });
+        };
 
     ctx.globals().set(
         "__tela_native_fetch__",
