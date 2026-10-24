@@ -1,0 +1,6 @@
+{
+  "name": "terminal-fixture",
+  "private": true,
+  "scripts": { "build": "esbuild src/index.jsx --jsx-factory=h --jsx-fragment=Fragment --outfile=bundle.js" },
+  "devDependencies": { "esbuild": "^0.25.0" }
+}
