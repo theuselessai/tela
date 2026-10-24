@@ -1,6 +1,13 @@
-use anyhow::{Context, Result, anyhow};
+mod pump;
+mod setup;
+pub use setup::EngineOptions;
+
+use anyhow::{anyhow, Context, Result};
 use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyCode, KeyEventKind, KeyModifiers},
+    event::{
+        DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyCode, KeyEventKind,
+        KeyModifiers,
+    },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -13,8 +20,10 @@ use tokio::sync::mpsc;
 
 use crate::elements::Element;
 use crate::native::{
-    register_clipboard, register_console, register_env, register_fetch, register_filesystem,
-    register_storage, register_timers, register_websocket, TimerHandles, WsSenders,
+    new_terminal_handles, register_clipboard, register_console, register_encoding, register_env,
+    register_fetch, register_filesystem, register_native_modules, register_storage,
+    register_terminal, register_timers, NativeCompletion, NativeModule, NativeModuleRuntime,
+    TerminalHandles, TimerHandles, WsSenders,
 };
 
 const H_AND_FRAGMENT: &str = r#"
@@ -75,6 +84,15 @@ const TELA_RUNTIME: &str = r#"
 
         var actionName = modeBindings[keyName] || modeBindings[action.key];
 
+        // Generic catch-all for apps with their own local/modal key router.
+        // Explicit bindings keep precedence; expose every original modifier.
+        if (typeof modeBindings['*'] === 'string' && (!actionName || keyName === '*' || (action.key === '*' && !modeBindings[keyName]))) {
+            clearTimeout(globalThis.__tela_key_timer__);
+            globalThis.__tela_key_buffer__ = [];
+            return userReduce(state, {type: modeBindings['*'], key: action.key,
+                ctrl: !!action.ctrl, alt: !!action.alt, shift: !!action.shift});
+        }
+
         // Check for multi-key sequence match
         if (!actionName) {
             globalThis.__tela_key_buffer__ = globalThis.__tela_key_buffer__ || [];
@@ -115,6 +133,10 @@ const TELA_RUNTIME: &str = r#"
             return userReduce(state, { type: actionName });
         }
 
+        if (mode === "terminal") {
+            return userReduce(state, { type: "terminal_key", key: action.key, ctrl: action.ctrl, alt: action.alt, shift: action.shift });
+        }
+
         if (mode === "insert") {
             if (action.ctrl && action.key === "j") {
                 return userReduce(state, { type: "input_newline" });
@@ -137,70 +159,29 @@ const TELA_RUNTIME: &str = r#"
 pub struct Engine {
     rt: AsyncRuntime,
     ctx: AsyncContext,
+    crypto: Option<Arc<crate::native::crypto::CryptoRuntime>>,
     _action_tx: mpsc::UnboundedSender<serde_json::Value>,
     action_rx: tokio::sync::Mutex<mpsc::UnboundedReceiver<serde_json::Value>>,
     _timer_handles: TimerHandles,
     _ws_senders: WsSenders,
+    terminals: TerminalHandles,
+    _native_runtime: Arc<NativeModuleRuntime>,
+    native_completion_rx: tokio::sync::Mutex<mpsc::Receiver<NativeCompletion>>,
 }
 
 impl Engine {
-    pub async fn new() -> Result<Self> {
-        let all_perms: Vec<String> = ["network", "storage", "clipboard", "env"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        Self::new_with_manifest("default", &all_perms).await
-    }
-
-    pub async fn new_with_manifest(app_name: &str, permissions: &[String]) -> Result<Self> {
-        let rt = AsyncRuntime::new().context("failed to create QuickJS runtime")?;
-        let ctx = AsyncContext::full(&rt)
-            .await
-            .context("failed to create QuickJS context")?;
-
-        let (action_tx, action_rx) = mpsc::unbounded_channel();
-        let timer_handles: TimerHandles = Arc::new(Mutex::new(HashMap::new()));
-        let ws_senders: WsSenders = Arc::new(Mutex::new(HashMap::new()));
-
-        {
-            let tx = action_tx.clone();
-            let th = timer_handles.clone();
-            let ws = ws_senders.clone();
-            let rt_handle = tokio::runtime::Handle::current();
-            let app_name = app_name.to_string();
-            let perms: Vec<String> = permissions.to_vec();
-            ctx.with(move |ctx| -> Result<()> {
-                register_console(&ctx)?;
-                ctx.eval::<(), _>(H_AND_FRAGMENT)
-                    .map_err(|e| anyhow!("failed to register h/Fragment: {e}"))?;
-                register_timers(&ctx, tx.clone(), th, rt_handle.clone())?;
-                if perms.iter().any(|p| p == "network") {
-                    register_fetch(&ctx, tx.clone(), rt_handle.clone())?;
-                    register_websocket(&ctx, tx, ws, rt_handle)?;
-                }
-                if perms.iter().any(|p| p == "storage") {
-                    register_storage(&ctx, &app_name)?;
-                }
-                if perms.iter().any(|p| p == "env") {
-                    register_env(&ctx)?;
-                }
-                if perms.iter().any(|p| p == "clipboard") {
-                    register_clipboard(&ctx)?;
-                }
-                register_filesystem(&ctx, &perms)?;
-                Ok(())
-            })
-            .await?;
+    /// Cancels native-module work. Calls made afterwards reject without execution.
+    pub fn shutdown(&self) {
+        self._native_runtime.cancel();
+        if let Some(crypto) = &self.crypto {
+            crypto.shutdown();
         }
-
-        Ok(Engine {
-            rt,
-            ctx,
-            _action_tx: action_tx,
-            action_rx: tokio::sync::Mutex::new(action_rx),
-            _timer_handles: timer_handles,
-            _ws_senders: ws_senders,
-        })
+        crate::native::websocket::shutdown_ws(&self._ws_senders);
+        if let Ok(mut timers) = self._timer_handles.lock() {
+            for (_, task) in timers.drain() {
+                task.abort();
+            }
+        }
     }
 
     pub async fn load_bundle(&self, source: &str) -> Result<()> {
@@ -233,15 +214,15 @@ impl Engine {
     pub async fn get_initial_state_json(&self) -> Result<serde_json::Value> {
         self.ctx
             .with(|ctx| -> Result<serde_json::Value> {
-                let val: rquickjs::Value =
-                    ctx.eval("globalThis.__tela_state__")
-                        .map_err(|e| anyhow!("failed to get state: {e}"))?;
+                let val: rquickjs::Value = ctx
+                    .eval("globalThis.__tela_state__")
+                    .map_err(|e| anyhow!("failed to get state: {e}"))?;
                 js_value_to_json(&ctx, val)
             })
             .await
     }
 
-    async fn reduce_and_process(&self, action: serde_json::Value) -> Result<bool> {
+    pub(crate) async fn reduce_and_process(&self, action: serde_json::Value) -> Result<bool> {
         let action_json = serde_json::to_string(&action)?;
         self.ctx
             .with(move |ctx| -> Result<bool> {
@@ -290,14 +271,16 @@ impl Engine {
                 ctx.eval::<(), _>(set_action.as_str())
                     .map_err(|e| anyhow!("failed to set action: {e}"))?;
 
-                ctx.eval::<(), _>(r#"
+                ctx.eval::<(), _>(
+                    r#"
                     (function() {
                         var action = globalThis.__tela_pending_action__;
                         if (typeof reduce === 'function') {
                             globalThis.__tela_state__ = reduce(globalThis.__tela_state__, action);
                         }
                     })();
-                "#)
+                "#,
+                )
                 .map_err(|e| anyhow!("reduce failed: {e}"))?;
                 Ok(())
             })
@@ -312,7 +295,6 @@ impl Engine {
                     .eval(
                         r#"
                         (function() {
-                            globalThis.__tela_dispatch_queue__ = [];
                             var dispatch = function(action) {
                                 globalThis.__tela_dispatch_queue__.push(action);
                             };
@@ -352,6 +334,14 @@ impl Engine {
     }
 
     pub async fn execute_pending_jobs(&self) {
+        self.drain_native_completions().await;
+        let _ = self.handle_crypto_completion().await;
+        self.execute_js_jobs().await;
+        self.drain_native_completions().await;
+        let _ = self.handle_crypto_completion().await;
+    }
+
+    async fn execute_js_jobs(&self) {
         for _ in 0..100 {
             match tokio::time::timeout(
                 std::time::Duration::from_millis(1),
@@ -363,6 +353,43 @@ impl Engine {
                 _ => break,
             }
         }
+    }
+
+    async fn drain_native_completions(&self) {
+        let mut rx = self.native_completion_rx.lock().await;
+        while let Ok(completion) = rx.try_recv() {
+            let _ = self.handle_native_completion(completion).await;
+        }
+    }
+
+    async fn handle_native_completion(&self, completion: NativeCompletion) -> Result<bool> {
+        self.resolve_native(completion).await?;
+        self.execute_js_jobs().await;
+        for action in self.drain_dispatch_queue().await? {
+            self.reduce_and_process(action).await?;
+        }
+        Ok(self.check_quit().await)
+    }
+
+    async fn resolve_native(&self, completion: NativeCompletion) -> Result<()> {
+        if self._native_runtime.is_cancelled() {
+            return Ok(());
+        }
+        let id = completion.id as f64;
+        let (result_json, error) = match completion.result {
+            Ok(result) => (result, String::new()),
+            Err(error) => ("null".to_string(), error),
+        };
+        self.ctx
+            .with(move |ctx| -> Result<()> {
+                let func: rquickjs::Function = ctx
+                    .globals()
+                    .get("__tela_resolve_native__")
+                    .map_err(|e| anyhow!("__tela_resolve_native__ not found: {e}"))?;
+                func.call::<_, ()>((id, result_json, error))
+                    .map_err(|e| anyhow!("resolve_native failed: {e}"))
+            })
+            .await
     }
 
     async fn fire_timer(&self, id: u64) -> Result<()> {
@@ -413,6 +440,17 @@ impl Engine {
             .await
     }
 
+    async fn is_terminal_mode(&self) -> bool {
+        self.ctx
+            .with(|ctx| {
+                ctx.eval::<bool, _>(
+                    "globalThis.__tela_state__ && globalThis.__tela_state__.mode === 'terminal'",
+                )
+                .unwrap_or(false)
+            })
+            .await
+    }
+
     async fn check_quit(&self) -> bool {
         self.ctx
             .with(|ctx| -> bool {
@@ -450,30 +488,30 @@ impl Engine {
             }
             Some("__tela_fetch__") => {
                 let id = action.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
-                let result = action.get("result").and_then(|v| v.as_str()).unwrap_or("{}");
+                let result = action
+                    .get("result")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("{}");
                 self.resolve_fetch(id, result).await?;
-                self.execute_pending_jobs().await;
+                self.execute_js_jobs().await;
             }
             _ => {
                 self.reduce(action).await?;
             }
         }
 
-        let dispatched = self.drain_dispatch_queue().await?;
-        for a in dispatched {
-            self.reduce(a).await?;
-        }
-        self.execute_pending_jobs().await;
-
+        self.finish_async_actions().await?;
         Ok(())
     }
 
     async fn process_event(&self, event: Event) -> Result<bool> {
         match event {
             Event::Key(key) if key.kind == KeyEventKind::Press => {
-                if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c')
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    && key.code == KeyCode::Char('c')
+                    && !self.is_terminal_mode().await
                 {
-                    return Ok(true); // quit
+                    return Ok(true); // emergency exit outside terminal input mode
                 }
                 let key_name = match key.code {
                     KeyCode::Char(' ') => Some(" ".to_string()),
@@ -481,7 +519,7 @@ impl Engine {
                     KeyCode::Enter => Some("Enter".to_string()),
                     KeyCode::Esc => Some("Escape".to_string()),
                     KeyCode::Backspace => Some("Backspace".to_string()),
-                    KeyCode::Tab => Some("Tab".to_string()),
+                    KeyCode::Tab | KeyCode::BackTab => Some("Tab".to_string()),
                     KeyCode::Up => Some("Up".to_string()),
                     KeyCode::Down => Some("Down".to_string()),
                     KeyCode::Left => Some("Left".to_string()),
@@ -495,15 +533,15 @@ impl Engine {
                     KeyCode::F(n) => Some(format!("F{n}")),
                     _ => None,
                 };
-                
+
                 if let Some(name) = key_name {
                     return self
-                        .reduce_and_process(serde_json::json!({
+                        .dispatch_input_action(serde_json::json!({
                             "type": "__tela_key__",
                             "key": name,
                             "ctrl": key.modifiers.contains(KeyModifiers::CONTROL),
                             "alt": key.modifiers.contains(KeyModifiers::ALT),
-                            "shift": key.modifiers.contains(KeyModifiers::SHIFT),
+                            "shift": key.modifiers.contains(KeyModifiers::SHIFT) || key.code == KeyCode::BackTab,
                         }))
                         .await;
                 }
@@ -523,7 +561,7 @@ impl Engine {
                     _ => return Ok(false),
                 };
                 return self
-                    .reduce_and_process(serde_json::json!({
+                    .dispatch_input_action(serde_json::json!({
                         "type": "__tela_mouse__",
                         "event": event_name,
                         "column": mouse.column,
@@ -535,7 +573,7 @@ impl Engine {
             Event::Resize(w, h) => {
                 self.update_terminal_size().await;
                 return self
-                    .reduce_and_process(serde_json::json!({
+                    .dispatch_input_action(serde_json::json!({
                         "type": "__tela_resize__",
                         "columns": w,
                         "rows": h,
@@ -548,6 +586,7 @@ impl Engine {
     }
 
     pub async fn run(&self) -> Result<()> {
+        let _shutdown_on_exit = setup::ShutdownOnExit(self);
         enable_raw_mode().context("failed to enable raw mode")?;
         let mut stdout = std::io::stdout();
         execute!(stdout, EnterAlternateScreen, EnableMouseCapture)
@@ -558,13 +597,23 @@ impl Engine {
         let mut terminal = Terminal::new(backend).context("failed to create terminal")?;
 
         let mut action_rx = self.action_rx.lock().await;
+        let mut native_completion_rx = self.native_completion_rx.lock().await;
         let mut event_stream = EventStream::new();
 
         self.update_terminal_size().await;
+        self.finish_async_actions().await?;
+        if self.check_quit().await {
+            return Ok(());
+        }
 
         let tree = self.view().await?;
         terminal.draw(|frame| {
-            crate::renderer::render_element(frame, frame.area(), &tree);
+            crate::renderer::render_element_with_terminals(
+                frame,
+                frame.area(),
+                &tree,
+                &self.terminals,
+            );
         })?;
 
         loop {
@@ -585,6 +634,14 @@ impl Engine {
                         self.handle_internal_action(action).await?;
                         should_quit = self.check_quit().await;
                     }
+                }
+                completion = native_completion_rx.recv() => {
+                    if let Some(completion) = completion {
+                        should_quit = self.handle_native_completion(completion).await?;
+                    }
+                }
+                _ = self.crypto_ready() => {
+                    should_quit = self.handle_crypto_completion().await?;
                 }
             }
 
@@ -611,6 +668,18 @@ impl Engine {
                                 continue;
                             }
                         }
+                        completion = native_completion_rx.recv() => {
+                            if let Some(completion) = completion {
+                                should_quit = self.handle_native_completion(completion).await?;
+                                if should_quit { break; }
+                                continue;
+                            }
+                        }
+                        _ = self.crypto_ready() => {
+                            should_quit = self.handle_crypto_completion().await?;
+                            if should_quit { break; }
+                            continue;
+                        }
                         _ = futures_util::future::ready(()) => { break; }
                     }
                 }
@@ -622,11 +691,23 @@ impl Engine {
 
             let tree = self.view().await?;
             terminal.draw(|frame| {
-                crate::renderer::render_element(frame, frame.area(), &tree);
+                crate::renderer::render_element_with_terminals(
+                    frame,
+                    frame.area(),
+                    &tree,
+                    &self.terminals,
+                );
             })?;
         }
 
+        self.shutdown();
         Ok(())
+    }
+}
+
+impl Drop for Engine {
+    fn drop(&mut self) {
+        self.shutdown();
     }
 }
 
@@ -652,10 +733,6 @@ struct TerminalGuard;
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
         let _ = disable_raw_mode();
-        let _ = execute!(
-            std::io::stdout(),
-            LeaveAlternateScreen,
-            DisableMouseCapture
-        );
+        let _ = execute!(std::io::stdout(), LeaveAlternateScreen, DisableMouseCapture);
     }
 }

@@ -1,10 +1,27 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::Frame;
 
-use super::render_element;
-use crate::elements::Element;
+use super::{render_element, render_element_with_terminals};
+use crate::{elements::Element, native::TerminalHandles};
 
 pub fn render(frame: &mut Frame, area: Rect, element: &Element) {
+    render_inner(frame, area, element, None);
+}
+pub fn render_with_terminals(
+    frame: &mut Frame,
+    area: Rect,
+    element: &Element,
+    terminals: &TerminalHandles,
+) {
+    render_inner(frame, area, element, Some(terminals));
+}
+
+fn render_inner(
+    frame: &mut Frame,
+    area: Rect,
+    element: &Element,
+    terminals: Option<&TerminalHandles>,
+) {
     let position = element
         .props
         .get("position")
@@ -12,7 +29,7 @@ pub fn render(frame: &mut Frame, area: Rect, element: &Element) {
         .unwrap_or("relative");
 
     if position == "absolute" {
-        render_absolute(frame, area, element);
+        render_absolute(frame, area, element, terminals);
         return;
     }
 
@@ -55,19 +72,28 @@ pub fn render(frame: &mut Frame, area: Rect, element: &Element) {
 
     for (i, child) in element.children.iter().enumerate() {
         if i < chunks.len() {
-            render_element(frame, chunks[i], child);
+            if let Some(terminals) = terminals {
+                render_element_with_terminals(frame, chunks[i], child, terminals);
+            } else {
+                render_element(frame, chunks[i], child);
+            }
         }
     }
 }
 
 /// Position children at absolute x,y coordinates within the parent area.
-fn render_absolute(frame: &mut Frame, area: Rect, element: &Element) {
+fn render_absolute(
+    frame: &mut Frame,
+    area: Rect,
+    element: &Element,
+    terminals: Option<&TerminalHandles>,
+) {
     for child in &element.children {
         if child.is_text() {
             continue;
         }
         if child.is_fragment() {
-            render_absolute(frame, area, child);
+            render_absolute(frame, area, child, terminals);
             continue;
         }
 
@@ -102,6 +128,10 @@ fn render_absolute(frame: &mut Frame, area: Rect, element: &Element) {
         }
 
         let child_area = Rect::new(abs_x, abs_y, w, h);
-        render_element(frame, child_area, child);
+        if let Some(terminals) = terminals {
+            render_element_with_terminals(frame, child_area, child, terminals);
+        } else {
+            render_element(frame, child_area, child);
+        }
     }
 }

@@ -1,17 +1,28 @@
 pub mod clipboard;
+pub(crate) mod clock;
 pub mod console;
+pub(crate) mod crypto;
+pub(crate) mod credentials;
 pub mod env;
+pub(crate) mod encoding;
 pub mod fetch;
 pub mod filesystem;
+pub mod module;
 pub mod storage;
+pub mod terminal;
 pub mod timers;
+pub(crate) mod url;
 pub mod websocket;
 
 pub use clipboard::register_clipboard;
 pub use console::register_console;
 pub use env::register_env;
+pub(crate) use encoding::register_encoding;
 pub use fetch::register_fetch;
 pub use filesystem::register_filesystem;
+pub(crate) use module::{register_native_modules, NativeCompletion, NativeModuleRuntime};
+pub use module::{NativeModule, NativeModuleFuture, NativeModuleHandler};
 pub use storage::register_storage;
+pub use terminal::{new_terminal_handles, register_terminal, TerminalHandles};
 pub use timers::{register_timers, TimerHandles};
 pub use websocket::{register_websocket, WsSenders};

@@ -1,10 +1,18 @@
+#[cfg(all(feature = "rustls-tls", feature = "native-tls-vendored"))]
+compile_error!("Select one TLS backend: rustls-tls (default) or --no-default-features with native-tls-vendored");
+
 pub mod elements;
 pub mod engine;
 pub mod native;
 pub mod renderer;
 
+#[cfg(test)]
+mod engine_tests;
+
 pub use elements::Element;
-pub use engine::Engine;
+pub use engine::{Engine, EngineOptions};
+pub use native::{NativeModule, NativeModuleFuture, NativeModuleHandler};
+pub use tokio_util::sync::CancellationToken;
 
 pub struct Manifest {
     pub name: String,
@@ -20,8 +28,8 @@ impl Manifest {
 }
 
 pub fn parse_manifest(json_str: &str) -> anyhow::Result<Manifest> {
-    let val: serde_json::Value =
-        serde_json::from_str(json_str).map_err(|e| anyhow::anyhow!("invalid manifest JSON: {e}"))?;
+    let val: serde_json::Value = serde_json::from_str(json_str)
+        .map_err(|e| anyhow::anyhow!("invalid manifest JSON: {e}"))?;
     let permissions = val
         .get("permissions")
         .and_then(|v| v.as_array())

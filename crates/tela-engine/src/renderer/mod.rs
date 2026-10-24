@@ -18,6 +18,7 @@ pub mod popup;
 pub mod sparkline_widget;
 pub mod table;
 pub mod tabs;
+pub mod terminal;
 pub mod text;
 pub mod textarea;
 
@@ -27,7 +28,7 @@ use ratatui::text::Span;
 use ratatui::widgets::BorderType;
 use ratatui::Frame;
 
-use crate::elements::Element;
+use crate::{elements::Element, native::TerminalHandles};
 
 /// Render an element tree into the terminal frame.
 pub fn render_element(frame: &mut Frame, area: Rect, element: &Element) {
@@ -57,6 +58,27 @@ pub fn render_element(frame: &mut Frame, area: Rect, element: &Element) {
 fn render_children(frame: &mut Frame, area: Rect, element: &Element) {
     for child in &element.children {
         render_element(frame, area, child);
+    }
+}
+
+/// Render with engine-owned native terminal surfaces available to `<terminal>`.
+pub fn render_element_with_terminals(
+    frame: &mut Frame,
+    area: Rect,
+    element: &Element,
+    terminals: &TerminalHandles,
+) {
+    match element.tag.as_str() {
+        "__fragment__" | "row" => {
+            for child in &element.children {
+                render_element_with_terminals(frame, area, child, terminals);
+            }
+        }
+        "terminal" => terminal::render(frame, area, element, terminals),
+        "box" => box_widget::render_with_terminals(frame, area, element, terminals),
+        "layout" => layout::render_with_terminals(frame, area, element, terminals),
+        "popup" => popup::render_with_terminals(frame, area, element, terminals),
+        _ => render_element(frame, area, element),
     }
 }
 
