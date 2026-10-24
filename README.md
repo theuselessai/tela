@@ -63,6 +63,7 @@ function view(state) {
 | `<input>` | Custom | Text input with cursor |
 | `<gauge>` | Gauge | Progress bar |
 | `<canvas>` | Canvas | Braille/dot drawing surface |
+| `<terminal>` | Engine-owned VT grid | Bounded terminal rendering; no process or PTY creation |
 
 Custom components are plain JS functions that compose these primitives.
 
@@ -150,12 +151,22 @@ tela run examples/counter
 | [Styles](docs/STYLES.md) | Colors, modifiers, alignment, borders |
 | [Native API](docs/NATIVE-API.md) | fetch, WebSocket, timers, storage, clipboard, env |
 | [Keyboard](docs/KEYBOARD.md) | Key handling, modes, modifiers, input system |
+| [Remote apps](docs/REMOTE-APPS.md) | HTTPS manifest loading, hashes, cache and explicit permissions |
+| [Crypto](docs/CRYPTO.md) | Permission-gated native primitives (not full WebCrypto) |
+| [Credentials](docs/CREDENTIALS.md) | Private app-scoped, no-overwrite credential storage |
+| [WebSockets](docs/WEBSOCKETS.md) | Text/binary transport, subprotocols and bounds |
+| [Encoding](docs/ENCODING.md) | Bounded UTF-8 codecs |
+| [URL](docs/URL.md) | Capability-free URL parsing |
+| [Terminal surface](docs/TERMINAL-SURFACE.md) | VT rendering, terminal-mode keys and lifecycle |
+| [Embedding modules](docs/NATIVE-MODULES.md) | Optional host-owned native capabilities |
 
 ## Tests
 
 ```sh
-cargo build
-bash tests/run_all.sh
+cargo test --workspace --locked
+cargo build --locked
+TELA_BIN=./target/debug/tela bash tests/run_all.sh
+python3 tests/test_remote_pty.py
 ```
 
 Requires `tmux` and `esbuild`. Tests launch examples in tmux sessions, send keys, and assert screen content.
